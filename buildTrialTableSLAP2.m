@@ -1,4 +1,4 @@
-function trialTable = buildTrialTableSLAP2(dr)
+function trialTable = buildTrialTableSLAP2(dr,savedr)
 %This function organizes multi-trial recordings and reference images as a first step in the SLAP2 data processing
 %pipeline
 
@@ -15,6 +15,9 @@ multiCycleLinesPerTrial = 100000; % Break up continuous acquisitoins into blocks
 %get a list of dat files in a given folder
 if ~nargin
     dr = uigetdir;
+end
+if nargin < 2
+    savedr = dr;
 end
 unpickedfiles = dir([dr filesep '*.dat']);
 
@@ -234,7 +237,7 @@ for eIx = 1:epoch %for each epoch
 end
 
 
-save([dr filesep 'trialTable'], 'trialTable');
+save([savedr filesep 'trialTable'], 'trialTable');
 end
 
 

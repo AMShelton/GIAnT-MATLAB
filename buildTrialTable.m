@@ -1,4 +1,4 @@
-function trialTable = buildTrialTableBergamo(dr, fns)
+function trialTable = buildTrialTable(dr, fns, savedr)
 %This function organizes multi-trial recordings and metadata for Bergamo
 %recordings
 %autoMode: no user input required
@@ -6,6 +6,9 @@ function trialTable = buildTrialTableBergamo(dr, fns)
 %get a list of tif files in a given folder
 if ~nargin
     dr = uigetdir;
+end
+if nargin<3
+    savedr = dr;
 end
 if nargin<2 
     unpickedfiles = dir([dr filesep '*.tif']);
@@ -50,5 +53,5 @@ for eIx = 1:epoch %for each epoch
     end
 end
 
-save([dr filesep 'trialTable'], 'trialTable');
+save([savedr filesep 'trialTable'], 'trialTable');
 end
