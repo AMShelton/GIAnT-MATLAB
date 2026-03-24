@@ -20,9 +20,9 @@ if nargin>2
     if ischar(paramsIn)  % Parse JSON String to Structure
         paramsIn = jsondecode(paramsIn);
     end
-    params = setParams('stripRegBergamo', paramsIn);
+    params = setParams('StripRegistration', paramsIn);
 else
-    params = setParams('stripRegBergamo');
+    params = setParams('StripRegistration');
 end
 
 %set up parallelization

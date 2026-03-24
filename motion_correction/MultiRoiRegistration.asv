@@ -8,9 +8,9 @@ end
 
 %PARAMETER SETTING
 if nargin>1
-    params = setParams('MultiRoiRegistration', paramsIn);
+    params = setParams('multiRoiRegSLAP2', paramsIn);
 else
-    params = setParams('MultiRoiRegistration');
+    params = setParams('multiRoiRegSLAP2');
 end
 
 params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
@@ -18,10 +18,8 @@ params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''
 %load the trial Table, which sets correspondences between the two DMDs
 load([trialtabledr filesep fn], 'trialTable');
 
-mocosavedr = fullfile(trialTable.savedr,'motion_correction');
-if ~exist(mocosavedr,'dir')
-    mkdir(mocosavedr)
-end
+datadr = trialTable.datadr;
+resultsdr = trialTable.resultsdr;
 
 %set up parallelization
 p = gcp('nocreate'); % If no pool, do not create new one.
@@ -47,11 +45,11 @@ for DMD_ix = 1:nDMDs
     firstLine = nan(1,nTrials);
     if nWorkers>1
         parfor f_ix = 1:nTrials
-            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix)]= alignAsync(trialTable, params, f_ix, DMD_ix);
+            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix)]= alignAsync(datadr, trialTable, params, f_ix, DMD_ix);
         end
     else
         for f_ix = 1:nTrials
-            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix)]= alignAsync(trialTable, params, f_ix, DMD_ix);
+            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix)]= alignAsync(datadr, trialTable, params, f_ix, DMD_ix);
         end
     end
     if params.isReVolt && ~isfield(trialTable, 'firstLineOriginal')
@@ -80,6 +78,10 @@ else
 end
 
 mocosavedr = fullfile(trialTable.savedr,'motion_correction');
+if ~exist(mocosavedr)
+    mkdir(mocosavedr)
+end
+
 fn = trialTable.filename{DMD_ix,f_ix};
 fnW = ['E' int2str(trialTable.epoch(f_ix)) 'T' int2str(f_ix) 'DMD' int2str(DMD_ix)];
 firstLine = trialTable.firstLine(DMD_ix,f_ix);
@@ -105,7 +107,7 @@ while retry<10
         continue
     end
 end
-meta = loadMetadata([trialTable.datadr filesep fn]);
+meta = loadMetadata([dr filesep fn]);
 linerateHz = 1/meta.linePeriod_s;
 dt = linerateHz/aData.alignHz;
 numChannels = S2data.numChannels;
@@ -251,7 +253,7 @@ aErrorDS = nan(1,nDSframes); %alignment error output by dftregistration
 
 %output TIF
 pixelscale = 4e4; %PIXEL SIZE IN DOTS PER CM; 250nm
-fTIF = Fast_BigTiff_Write([mocosavedr filesep fnwrite],pixelscale,0);
+fTIF = Fast_BigTiff_Write([savedr filesep fnwrite],pixelscale,0);
 
 V1 = nan(size(viewC,1),size(viewC,2),nDSframes,'single'); %variance factor; multiply the image value by this to get variance
 registrationFailed = false;
@@ -405,7 +407,7 @@ aData.viewR = viewR;%used to remap images from the datafile into the space of th
 %  sz = size(Ytrimmed);
 %  Yshifted = interp2(1:sz(2), 1:sz(1), Ytrimmed,aData.viewC+motionC, aData.viewR+motionR, 'linear', nan);
 
-save([mocosavedr filesep fnAdata], 'aData', '-v7.3');
+save([savedr filesep fnAdata], 'aData', '-v7.3');
 end
 
 function meta = loadMetadata(datFilename)

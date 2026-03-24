@@ -4,9 +4,9 @@ if nargin>1
     if ischar(paramsIn)  % Parse JSON String to Structure
         paramsIn = jsondecode(paramsIn);
     end
-    params = setParams('summarize_LoCo', paramsIn);
+    params = setParams('SELAct', paramsIn);
 else
-    params = setParams('summarize_LoCo');
+    params = setParams('SELAct');
 end
 if ~nargin
     [trialTablefn, dr] =  uigetfile('*.mat', 'Select a trialTable file', '*trialTable*.mat' );

@@ -126,6 +126,9 @@ for DMDix = DMDixs
 end
 trialTable.refStack = refStack; clear refStack;
 
+trialTable.datadr = dr;
+trialTable.savedr = savedr;
+
 trialTable.filename = {};
 trialTable.firstLine = [];
 trialTable.lastLine = [];
