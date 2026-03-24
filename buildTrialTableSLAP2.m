@@ -59,7 +59,7 @@ for DMDix = DMDixs
     case 1
         DMD1refFn = fullfile(list(1).folder, list(1).name);
         A = ScanImageTiffReader(DMD1refFn);
-        refStack{DMDix}.IM = A.data;
+        refStack{DMDix}.IM = ScanImageTiffDataWrapper(A, DMD1refFn);
     
         %load metadata for the reference stack and BCI ROI
         desc = A.descriptions;
@@ -81,13 +81,6 @@ for DMDix = DMDixs
         refStack{DMDix}.Zs = Zs;
         refStack{DMDix}.dmdPixel2SampleTransform = jj.dmdPixel2SampleTransform;
 
-    % case 2  %old format, two reference files
-    %     error('Too many reference stacks found in the specified directory!');
-    %     % for cix = 1:2
-    %     %     DMD1refFn = fullfile(list(cix).folder, list(cix).name);
-    %     %     A = ScanImageTiffReader(DMD1refFn);
-    %     %     refStack{DMDix}.IM(:,:,:,cix) = A.data;
-    %     % end
     otherwise
         list = dir([dr filesep '**' filesep '*DMD' int2str(DMDix) '_CONFIG1-REFERENCE*.tif']);
         switch length(list)
@@ -96,7 +89,7 @@ for DMDix = DMDixs
             case 1
                 DMD1refFn = fullfile(list(1).folder, list(1).name);
                 A = ScanImageTiffReader(DMD1refFn);
-                refStack{DMDix}.IM = A.data;
+                refStack{DMDix}.IM = ScanImageTiffDataWrapper(A,DMD1refFn);
             
                 %load metadata for the reference stack and BCI ROI
                 desc = A.descriptions;
