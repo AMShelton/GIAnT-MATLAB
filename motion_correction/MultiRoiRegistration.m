@@ -30,7 +30,13 @@ if isempty(p)
 else
     poolsize = p.NumWorkers;
 end
-nWorkers = min([params.nWorkers, numel(trialTable.filename), feature('numcores')]);
+
+core_info = evalc('feature(''numcores'');');
+core_info = regexp(core_info,'assigned: \d+ logical cores','match');
+core_info = core_info{1};
+numLogicalCores = str2num(core_info(11:end-14));
+
+nWorkers = min([params.nWorkers, numel(trialTable.filename), numLogicalCores]);
 if poolsize<nWorkers || ~strcmpi(class(p), 'parallel.ProcessPool')
     delete(gcp('nocreate'));
     if params.nWorkers<15
