@@ -92,7 +92,7 @@ firstLine = trialTable.firstLine(DMD_ix,f_ix);
 lastLine = trialTable.lastLine(DMD_ix, f_ix);
 aData = params;
 
-disp(['Aligning: ' [trialTable.datadr filesep fn]])
+disp(['Aligning: ' fnW ' of ' [trialTable.datadr filesep fn]])
 fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
 fnAdata = [fnW '_ALIGNMENTDATA.mat'];
 
@@ -371,8 +371,7 @@ end
 
 if std(motionDSc)>1.5 || std(motionDSr)>1.5
     aData.registrationFailed = true;
-    warning(['Too much motion in file: ' fn]);
-    return
+    warning(['Too much motion in file ' fnW ' but will still save file']);
 else
     aData.registrationFailed = false;
 end
