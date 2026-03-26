@@ -97,7 +97,7 @@ fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
 fnAdata = [fnW '_ALIGNMENTDATA.mat'];
 
 if ~params.overwriteExisting && exist([mocosavedr filesep fnAdata], 'file') && exist([mocosavedr filesep fnwrite], 'file')
-    disp([fn ' is already aligned; skipping' newline 'To force realign, pass TRUE as second argument']);
+    disp([fnW ' of ' fn ' is already aligned; skipping' newline 'To force realign, pass TRUE as second argument']);
     return
 end
 
@@ -147,7 +147,7 @@ if params.isReVolt
                 span = (frames(ixEnd)-frames(ix0));
             end
             if isempty(ix0) || isempty(ixEnd)
-                warning(['isReVolt flag was set but laser on time could not be detected for file:' fn '. skipping...'])
+                warning(['isReVolt flag was set but laser on time could not be detected for file:' fnW ' of ' fn '. skipping...'])
                 return
             end
             fEnd = frames(ixEnd); f0 = frames(ix0);
@@ -173,7 +173,7 @@ initFrames =   round(linspace(firstLine, lastLine, 42)); initFrames = initFrames
 nInitFrames = length(initFrames);
 
 if nInitFrames==0
-    disp(['File ' fn ' was very short! Skipping alignment']);
+    disp(['File ' fnW ' of ' fn ' was very short! Skipping alignment']);
     return
 end
 for fix = nInitFrames:-1:1
@@ -347,7 +347,7 @@ try
 catch ME
     disp(ME);
     aData.registrationFailed = true;
-    disp(['REGISTRATION ERROR OCCURRED FOR FILE: ' fn newline 'YOU MAY NEED TO QC THIS FILE!' newline 'CONTINUING...'])
+    disp(['REGISTRATION ERROR OCCURRED FOR FILE: ' fnW ' of ' fn newline 'YOU MAY NEED TO QC THIS FILE!' newline 'CONTINUING...'])
     return
 end
 
