@@ -347,6 +347,10 @@ try
 catch ME
     disp(ME);
     aData.registrationFailed = true;
+    try
+        fTIF.close;
+    catch
+    end
     disp(['REGISTRATION ERROR OCCURRED FOR FILE: ' fnW ' of ' fn newline 'YOU MAY NEED TO QC THIS FILE!' newline 'CONTINUING...'])
     return
 end
