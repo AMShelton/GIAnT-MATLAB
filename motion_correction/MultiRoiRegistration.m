@@ -246,7 +246,7 @@ nDSframes= length(DSframes); %number of downsampled frames
 %for spatial downsampling, used to calculate alignment quality and for quicker visualization
 dsTimes = 2;
 dsSz = floor(size(template)./(2^dsTimes));
-A_ds = nan([dsSz nDSframes]);
+A_ds = nan([dsSz nDSframes],'single');
 
 motionDSr = nan(1,nDSframes);
 motionDSc = nan(1,nDSframes); %matrices to store the inferred motion

@@ -194,7 +194,7 @@ aErrorDS = nan(1,nDSframes);
 %for spatial downsampling, used to calculate alignment quality and for quicker visualization
 dsTimes = 2;
 dsSz = floor(size(template)./(2^dsTimes));
-A_ds = nan([dsSz nDSframes]);
+A_ds = nan([dsSz nDSframes],'single');
 
 disp('Registering:');
 for DSframe = 1:nDSframes
