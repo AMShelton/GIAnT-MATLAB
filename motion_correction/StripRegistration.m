@@ -280,14 +280,13 @@ nChunks = ceil(nDSframes./(aData.alignHz*10)); %align 10 seconds at a time
 chunkEdges = round(linspace(1, nDSframes+1, nChunks));
 for chunkIx = 1:length(chunkEdges)-1
     t_ixs = chunkEdges(chunkIx):chunkEdges(chunkIx+1)-1;
-    template = median(A_ds(:,:,t_ixs), 3, 'omitmissing');
-    nanFrac = mean(isnan(A_ds(:,:,t_ixs)), 3);
+    chunkData = A_ds(:,:,t_ixs);
+    template = median(chunkData, 3, 'omitmissing');
+    nanFrac = mean(isnan(chunkData), 3);
     template(nanFrac>0.2) = nan;
     template_gamma = sqrt(max(0,template)+offset);
-    template = repmat(template, 1,1,length(t_ixs));
-    template(isnan(A_ds(:,:,t_ixs))) = nan;
-
-    recNegErr(1,t_ixs) = sqrt(squeeze(mean((max(0, (template-A_ds(:,:,t_ixs))./template_gamma).^2), [1 2], 'omitnan')./mean(max(0,(template./template_gamma).^2, 'includenan'), [1 2], 'omitnan')));
+    % chunkData*0: broadcast 2D template to 3D without repmat; nan where frame is nan
+    recNegErr(1,t_ixs) = sqrt(squeeze(mean(max(0, (template-chunkData)./template_gamma).^2, [1 2], 'omitnan')./mean(max(0, (template./template_gamma).^2 + chunkData * 0, 'includenan'), [1 2], 'omitnan')));
 end
 
 %upsample the shifts and compute a tighter field of view
