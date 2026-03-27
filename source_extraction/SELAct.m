@@ -50,7 +50,7 @@ end
 disp(['## SUMMARIZING' newline 'Folder:'])
 disp(dr)
 
-savedr = [dr filesep 'ExperimentSummary'];
+savedr = [dr filesep 'source_extraction'];
 % on CodeOcean /data is read-only and we save to /results
 is_CodeOcean = ~(getenv("CO_CPUS") == "");
 if is_CodeOcean
