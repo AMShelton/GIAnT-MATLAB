@@ -29,8 +29,6 @@ end
 
 params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
-copyReadDeleteScanImageTiff([]); %make sure we can use the function in parallel loops
-
 %confirm that all files exist
 [trialTable, keepTrials] = verifyFiles(trialTablefn, dr, params);
 % for dmdIx = 1:numel(trialTable.refStack)
@@ -50,16 +48,12 @@ end
 disp(['## SUMMARIZING' newline 'Folder:'])
 disp(dr)
 
-savedr = [dr filesep 'source_extraction'];
-% on CodeOcean /data is read-only and we save to /results
-is_CodeOcean = ~(getenv("CO_CPUS") == "");
-if is_CodeOcean
-    savedr = strrep(strrep(savedr, '/data', '/results'), '/scratch', '/results');
-end
+savedr = [trialTable.savedr filesep 'source_extraction'];
+
 if ~exist(savedr, 'dir')
     mkdir(savedr);
 end
-fnsave = [savedr filesep 'SummaryLoCo-' datestr(now, 'YYmmDD-HHMMSS') '.mat'];
+fnsave = [savedr filesep 'ExperimentSummary-' datestr(now, 'YYmmDD-HHMMSS') '.mat'];
 
 %call up a GUI for the user to define Soma ROI and regions to exclude
 if params.drawUserRois
@@ -71,7 +65,7 @@ if params.drawUserRois
             %load image data
             firstValidTrial = find(keepTrials(DMDix,:),1,"first");
             [~, fn, ext] = fileparts(trialTable.fnRegDS{DMDix,firstValidTrial});
-            IM = copyReadDeleteScanImageTiff([dr filesep fn ext]);
+            [IM, ~] = ScanImageTiffWrapper([dr filesep fn ext]);
             IM = squeeze(mean(IM,[3 4], 'omitnan'));
             hROIs(DMDix) = drawROIs(sqrt(max(0,IM)), dr, fn);
             ROIs(DMDix).dr = dr;
