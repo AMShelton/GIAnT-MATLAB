@@ -57,7 +57,7 @@ fnsave = [savedr filesep 'ExperimentSummary-' datestr(now, 'YYmmDD-HHMMSS') '.ma
 
 %call up a GUI for the user to define Soma ROI and regions to exclude
 if params.drawUserRois
-    fnAnn = [dr filesep 'ANNOTATIONS.mat'];
+    fnAnn = [savedr filesep 'ANNOTATIONS.mat'];
     if exist(fnAnn, 'file')
         load(fnAnn, 'ROIs')
     else
@@ -86,7 +86,7 @@ for DMDix = nDMDs:-1:1
     %load some metadata
     firstValidTrial = find(keepTrials(DMDix,:),1,"first");
     fn = trialTable.fnAdata{DMDix,firstValidTrial};
-    load([dr filesep fn], 'aData');
+    load([dr filesep 'motion_correction' filesep fn], 'aData');
     numChannels = aData.numChannels;
     params.numChannels = numChannels;
     params.alignHz = aData.alignHz;
@@ -109,7 +109,7 @@ for DMDix = nDMDs:-1:1
         else
             poolsize = p.NumWorkers;
         end
-        dd = dir([dr filesep trialTable.fnRegDS{DMDix, firstValidTrial}]);
+        dd = dir([dr filesep 'motion_correction' filesep trialTable.fnRegDS{DMDix, firstValidTrial}]);
         try
             fileSize = dd.bytes;
         catch
