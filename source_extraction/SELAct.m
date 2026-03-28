@@ -31,6 +31,7 @@ params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''
 
 %confirm that all files exist
 [trialTable, keepTrials] = verifyFiles(trialTablefn, dr, params);
+mocodr = fullfile(trialTable.savedr, 'motion_correction');
 % for dmdIx = 1:numel(trialTable.refStack)
 %     trialTable.refStack{dmdIx}.IM = []; %this uses a lot of memory and we won't need it
 %end
@@ -48,7 +49,7 @@ end
 disp(['## SUMMARIZING' newline 'Folder:'])
 disp(dr)
 
-savedr = [trialTable.savedr filesep 'source_extraction'];
+savedr = fullfile(trialTable.savedr, 'source_extraction');
 
 if ~exist(savedr, 'dir')
     mkdir(savedr);
@@ -65,9 +66,9 @@ if params.drawUserRois
             %load image data
             firstValidTrial = find(keepTrials(DMDix,:),1,"first");
             [~, fn, ext] = fileparts(trialTable.fnRegDS{DMDix,firstValidTrial});
-            [IM, ~] = ScanImageTiffWrapper([dr filesep 'motion_correction' filesep fn ext]);
+            [IM, ~] = ScanImageTiffWrapper(fullfile(mocodr, [fn ext]));
             IM = squeeze(mean(IM,[3 4], 'omitnan'));
-            hROIs(DMDix) = drawROIs(sqrt(max(0,IM)), dr, fn);
+            hROIs(DMDix) = drawROIs(sqrt(max(0,IM)), savedr, fn);
             ROIs(DMDix).dr = dr;
             ROIs(DMDix).fn = fn;
         end
@@ -86,7 +87,7 @@ for DMDix = nDMDs:-1:1
     %load some metadata
     firstValidTrial = find(keepTrials(DMDix,:),1,"first");
     fn = trialTable.fnAdata{DMDix,firstValidTrial};
-    load([dr filesep 'motion_correction' filesep fn], 'aData');
+    load(fullfile(mocodr, fn), 'aData');
     numChannels = aData.numChannels;
     params.numChannels = numChannels;
     params.alignHz = aData.alignHz;
@@ -109,7 +110,7 @@ for DMDix = nDMDs:-1:1
         else
             poolsize = p.NumWorkers;
         end
-        dd = dir([dr filesep 'motion_correction' filesep trialTable.fnRegDS{DMDix, firstValidTrial}]);
+        dd = dir(fullfile(mocodr, trialTable.fnRegDS{DMDix, firstValidTrial}));
         try
             fileSize = dd.bytes;
         catch
@@ -139,7 +140,7 @@ for DMDix = nDMDs:-1:1
     fns = trialTable.fnRegDS(DMDix, :);
     parfor trialIx = 1:nTrials
         if keepTrials(DMDix,trialIx)
-            [~, mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}]= loadAndProcessTrialAsync(dr, fns{trialIx}, numChannels, params); %rawIMs{trialIx}
+            [~, mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}]= loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params); %rawIMs{trialIx}
         end
     end
     %Assemble same-sized mean images from different-sized trial means
@@ -285,13 +286,18 @@ for DMDix = nDMDs:-1:1
     if any(keepSources)
         fns = trialTable.fnRaw(DMDix,:);
             if strcmpi(params.microscope, 'SLAP2')
+                if isfield(trialTable, 'datadr') && ~isempty(trialTable.datadr)
+                    trialDataDr = trialTable.datadr;
+                else
+                    trialDataDr = dr;
+                end
                 fls = trialTable.firstLine(DMDix,:);
                 els = trialTable.lastLine(DMDix,:);
-                E = processAllTrials_Async(dr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
-            else %BERGAMO
+                E = processAllTrials_Async(trialDataDr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
+            else %BERGAMO (registered movies live under motion_correction)
                 fls = cell(1,numel(fns)); %first frame; leave empty for most uses
                 els = cell(1,numel(fns)); %last frame; leave empty for most uses
-                E = processAllTrials_Async(dr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
+                E = processAllTrials_Async(mocodr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
             end
 
         %per-trial images

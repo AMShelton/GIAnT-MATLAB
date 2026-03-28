@@ -1,10 +1,10 @@
-function  [IM, meanIM, IMc, aData, peaks, discardFrames]= loadAndProcessTrialAsync(dr, fn, numChannels, params)
-     %load the tiff
+function  [IM, meanIM, IMc, aData, peaks, discardFrames]= loadAndProcessTrialAsync(mocoDr, fn, numChannels, params)
+% mocoDr: directory with motion-corrected outputs (downsampled registered TIFF/H5 and *_ALIGNMENTDATA.mat).
     if endsWith(fn, '.h5')
-        desc = h5info([dr filesep fn]);
-        IM = h5read([dr filesep fn], ['/', desc.Datasets.Name]);
+        desc = h5info([mocoDr filesep fn]);
+        IM = h5read([mocoDr filesep fn], ['/', desc.Datasets.Name]);
     else
-        IM = ScanImageTiffWrapper([dr filesep fn]);
+        IM = ScanImageTiffWrapper([mocoDr filesep fn]);
     end
     IM = reshape(IM, size(IM,1), size(IM,2), numChannels, []); %deinterleave;
 
@@ -16,7 +16,7 @@ function  [IM, meanIM, IMc, aData, peaks, discardFrames]= loadAndProcessTrialAsy
 
     %load alignment data
     fnStemEnd = strfind(fn, '_REGISTERED') -1;
-    load([dr filesep fn(1:fnStemEnd) '_ALIGNMENTDATA.mat'], 'aData');
+    load([mocoDr filesep fn(1:fnStemEnd) '_ALIGNMENTDATA.mat'], 'aData');
     aData.dsFac = 1; %SLAP2 data does not have downsampling per se
     params.dsFac = aData.dsFac;
     params.alignHz = aData.alignHz;
