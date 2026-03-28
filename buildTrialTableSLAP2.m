@@ -6,8 +6,6 @@ function trialTable = buildTrialTableSLAP2(dr,savedr)
 %numbers sometimes fail to increment. THis makes some files extra long,
 % and subsequent trial numbers get out of sync
 
-import ScanImageTiffReader.ScanImageTiffReader
-
 %parameters
 lineDiffThresh = 2000; %difference threshold for calling two recordings the same length, in lines. ~0.2 seconds
 multiCycleLinesPerTrial = 200000; % Break up continuous acquisitoins into blocks of this many lines
@@ -58,11 +56,9 @@ for DMDix = DMDixs
         error(['Could not find reference image within folder: ' dr])
     case 1
         DMD1refFn = fullfile(list(1).folder, list(1).name);
-        A = ScanImageTiffReader(DMD1refFn);
-        refStack{DMDix}.IM = ScanImageTiffDataWrapper(A, DMD1refFn);
+        [refStack{DMDix}.IM, ~, desc] = ScanImageTiffWrapper(DMD1refFn);
     
         %load metadata for the reference stack and BCI ROI
-        desc = A.descriptions;
         zIx = 0; Zs = []; channels = [];
         for imIx = 1:numel(desc)
                 jj = jsondecode(desc{imIx});
@@ -88,11 +84,9 @@ for DMDix = DMDixs
                 error('Too many reference stacks found in the specified directory!');
             case 1
                 DMD1refFn = fullfile(list(1).folder, list(1).name);
-                A = ScanImageTiffReader(DMD1refFn);
-                refStack{DMDix}.IM = ScanImageTiffDataWrapper(A,DMD1refFn);
+                [refStack{DMDix}.IM, ~, desc] = ScanImageTiffWrapper(DMD1refFn);
             
                 %load metadata for the reference stack and BCI ROI
-                desc = A.descriptions;
                 zIx = 0; Zs = []; channels = [];
                 for imIx = 1:numel(desc)
                         jj = jsondecode(desc{imIx});

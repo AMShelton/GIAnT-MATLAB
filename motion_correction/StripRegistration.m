@@ -85,7 +85,8 @@ if endsWith(fn, '.h5')
     desc = h5info([dr filesep fn]);
     Ad = single(h5read([dr filesep fn], ['/', desc.Datasets.Name]));
 else
-    [Ad, desc, meta] = networkScanImageTiffReader([dr filesep fn]);
+    [Ad, meta, desc] = ScanImageTiffWrapper([dr filesep fn]);
+    Ad = single(Ad);
 end
 try
     evalc(desc{1});

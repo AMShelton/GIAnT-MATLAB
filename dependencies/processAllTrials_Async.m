@@ -175,7 +175,7 @@ switch params.microscope
             desc = h5info([dr filesep fn]);
             IM = h5read([dr filesep fn], ['/', desc.Datasets.Name]);
         else
-            IM = networkScanImageTiffReader([dr filesep fn]); %Raw movie
+            IM = ScanImageTiffWrapper([dr filesep fn]);
         end
         IM = double(IM);
 

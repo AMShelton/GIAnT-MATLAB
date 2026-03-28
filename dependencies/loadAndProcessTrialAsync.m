@@ -4,7 +4,7 @@ function  [IM, meanIM, IMc, aData, peaks, discardFrames]= loadAndProcessTrialAsy
         desc = h5info([dr filesep fn]);
         IM = h5read([dr filesep fn], ['/', desc.Datasets.Name]);
     else
-        IM = copyReadDeleteScanImageTiff([dr filesep fn]);
+        IM = ScanImageTiffWrapper([dr filesep fn]);
     end
     IM = reshape(IM, size(IM,1), size(IM,2), numChannels, []); %deinterleave;
 
