@@ -65,7 +65,7 @@ if params.drawUserRois
             %load image data
             firstValidTrial = find(keepTrials(DMDix,:),1,"first");
             [~, fn, ext] = fileparts(trialTable.fnRegDS{DMDix,firstValidTrial});
-            [IM, ~] = ScanImageTiffWrapper([dr filesep fn ext]);
+            [IM, ~] = ScanImageTiffWrapper([dr filesep 'motion_correction' filesep fn ext]);
             IM = squeeze(mean(IM,[3 4], 'omitnan'));
             hROIs(DMDix) = drawROIs(sqrt(max(0,IM)), dr, fn);
             ROIs(DMDix).dr = dr;
