@@ -8,6 +8,9 @@ datadr = trialTable.datadr;
 nTrials = length(trialTable.trueTrialIx);
 nDMDs = size(trialTable.filename,1);
 keepTrials = true(nDMDs, nTrials);
+useRegFailTable = isfield(trialTable, 'registrationFailed') ...
+    && size(trialTable.registrationFailed, 1) == nDMDs ...
+    && size(trialTable.registrationFailed, 2) == nTrials;
 for trialIx = nTrials:-1:1
     for DMDix = 1:nDMDs
         [~, tiffFn, ext] = fileparts(trialTable.fnRegDS{DMDix,trialIx}); 
@@ -23,8 +26,14 @@ for trialIx = nTrials:-1:1
             disp(['Missing alignData file:' alignFn])
             keepTrials(DMDix,trialIx) = false;
         else
-            load([mocodr filesep alignFn '.mat'], 'aData');
-            if isfield(aData, 'registrationFailed') && aData.registrationFailed
+            if useRegFailTable
+                regFailed = trialTable.registrationFailed(DMDix, trialIx);
+            else
+                S = load([mocodr filesep alignFn '.mat'], 'aData');
+                regFailed = isfield(S.aData, 'registrationFailed') && S.aData.registrationFailed;
+                clear S
+            end
+            if regFailed
                 disp(['Registration failed for file:' alignFn])
                 keepTrials(DMDix,trialIx) = false;
             else

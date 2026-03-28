@@ -46,20 +46,23 @@ if poolsize<nWorkers || ~strcmpi(class(p), 'parallel.ProcessPool')
 end
 nDMDs = size(trialTable.filename,1);
 nTrials = size(trialTable.trueTrialIx,2);
+trialTable.registrationFailed = false(nDMDs, nTrials);
 
 for DMD_ix = 1:nDMDs
     fnRegDS = cell(1,nTrials);
     fnAdata = cell(1,nTrials);
     firstLine = nan(1,nTrials);
+    regFail = false(1, nTrials);
     if nWorkers>1
         parfor f_ix = 1:nTrials
-            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix)]= alignAsync(trialTable, params, f_ix, DMD_ix);
+            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix), regFail(f_ix)]= alignAsync(trialTable, params, f_ix, DMD_ix);
         end
     else
         for f_ix = 1:nTrials
-            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix)]= alignAsync(trialTable, params, f_ix, DMD_ix);
+            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix), regFail(f_ix)]= alignAsync(trialTable, params, f_ix, DMD_ix);
         end
     end
+    trialTable.registrationFailed(DMD_ix,:) = regFail;
     if params.isReVolt && ~isfield(trialTable, 'firstLineOriginal')
         trialTable.firstLineOriginal = trialTable.firstLine;
         tOffset = firstLine - trialTable.firstLineOriginal(DMD_ix,:);
@@ -78,7 +81,7 @@ save([trialtabledr filesep fn], "trialTable")
 disp('done multiRoiRegistration.')
 end
 
-function [fnwrite, fnAdata, firstLine] = alignAsync(trialTable, params, f_ix, DMD_ix)
+function [fnwrite, fnAdata, firstLine, registrationFailed] = alignAsync(trialTable, params, f_ix, DMD_ix)
 if params.includeIntegrationROIs
     spTypeFlag = 0; %use all superpixel types
 else
@@ -95,6 +98,7 @@ aData = params;
 disp(['Aligning: ' fnW ' of ' [trialTable.datadr filesep fn]])
 fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
 fnAdata = [fnW '_ALIGNMENTDATA.mat'];
+registrationFailed = false;
 
 if ~params.overwriteExisting && exist([mocosavedr filesep fnAdata], 'file') && exist([mocosavedr filesep fnwrite], 'file')
     disp([fnW ' of ' fn ' is already aligned; skipping' newline 'To force realign, pass TRUE as second argument']);
@@ -148,6 +152,7 @@ if params.isReVolt
             end
             if isempty(ix0) || isempty(ixEnd)
                 warning(['isReVolt flag was set but laser on time could not be detected for file:' fnW ' of ' fn '. skipping...'])
+                registrationFailed = true;
                 return
             end
             fEnd = frames(ixEnd); f0 = frames(ix0);
@@ -174,6 +179,7 @@ nInitFrames = length(initFrames);
 
 if nInitFrames==0
     disp(['File ' fnW ' of ' fn ' was very short! Skipping alignment']);
+    registrationFailed = true;
     return
 end
 for fix = nInitFrames:-1:1
@@ -260,7 +266,6 @@ pixelscale = 4e4; %PIXEL SIZE IN DOTS PER CM; 250nm
 fTIF = Fast_BigTiff_Write([mocosavedr filesep fnwrite],pixelscale,0);
 
 V1 = nan(size(viewC,1),size(viewC,2),nDSframes,'single'); %variance factor; multiply the image value by this to get variance
-registrationFailed = false;
 %T = T0(aData.maxshift + (1:sz(1)), aData.maxshift+(1:sz(2)));
 disp('Registering:');
 try
@@ -347,6 +352,7 @@ try
 catch ME
     disp(ME);
     aData.registrationFailed = true;
+    registrationFailed = true;
     try
         fTIF.close;
     catch
@@ -414,6 +420,7 @@ aData.viewR = viewR;%used to remap images from the datafile into the space of th
 %  sz = size(Ytrimmed);
 %  Yshifted = interp2(1:sz(2), 1:sz(1), Ytrimmed,aData.viewC+motionC, aData.viewR+motionR, 'linear', nan);
 
+registrationFailed = aData.registrationFailed;
 save([mocosavedr filesep fnAdata], 'aData', '-v7.3');
 end
 

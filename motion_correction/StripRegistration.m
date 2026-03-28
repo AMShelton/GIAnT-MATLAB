@@ -46,8 +46,9 @@ end
 %align in parallel
 nTrials= numel(trialTable.filename);
 fnRegDS = cell(1, nTrials); fnRaw = cell(1, nTrials); fnAdata = cell(1, nTrials);
+regFail = false(1, nTrials);
 parfor f_ix = 1:nTrials
-    [fnRegDS{f_ix}, fnRaw{f_ix}, fnAdata{f_ix}]= alignAsync(dr, trialTable, params, f_ix);
+    [fnRegDS{f_ix}, fnRaw{f_ix}, fnAdata{f_ix}, regFail(f_ix)]= alignAsync(dr, trialTable, params, f_ix);
 end
 
 if isfield(params, 'denoise20Hz') && params.denoise20Hz
@@ -59,6 +60,7 @@ end
 trialTable.fnRegDS = fnRegDS;
 trialTable.fnRaw = fnRaw;
 trialTable.fnAdata = fnAdata;
+trialTable.registrationFailed = regFail;
 trialTable.alignParams = params;
 save(fullPathToTrialTable , "trialTable")
 
@@ -67,9 +69,10 @@ disp('done bergamoRegistration.')
 end
 
 
-function [fnDS, fnRaw, fnAdata] = alignAsync(dr, trialTable, params, f_ix);
+function [fnDS, fnRaw, fnAdata, registrationFailed] = alignAsync(dr, trialTable, params, f_ix);
 maxshift = params.maxshift;
 dsFac = 2^params.ds_time; params.dsFac = dsFac;
+registrationFailed = false;
 
 fn = trialTable.filename{f_ix};
 [~,fn, ext] = fileparts(fn);
@@ -137,6 +140,7 @@ try
 catch ME
     disp(['Your file was too short:' fn])
     fnDS = []; fnRaw=[]; fnAdata = [];
+    registrationFailed = true;
     return
 end
 sz = size(Ad);
