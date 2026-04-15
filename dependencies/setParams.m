@@ -2,7 +2,7 @@ function params = setParams(fnName, paramsIn, forceGUI)
 %A shared parameter-setting function
 
 switch fnName
-    case 'SELAct'
+    case 'SILo'
         params.microscope = { '''SLAP2''' , '''bergamo'''};          tooltips.scope = 'SLAP2 or bergamo';
         params.includeIntegrationROIs = false; tooltips.includeIntegrationROIs = 'Use integration ROIs for trace extraction?';
         params.sigma_px = 1.33;          tooltips.sigma_px = 'Estimated radius of the PSF (gaussian sigma)';

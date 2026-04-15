@@ -1,12 +1,12 @@
-function SELAct(dr_or_pathToTrialTable, paramsIn)
+function SILo(dr_or_pathToTrialTable, paramsIn)
 %PARAMETER SETTING
 if nargin>1
     if ischar(paramsIn)  % Parse JSON String to Structure
         paramsIn = jsondecode(paramsIn);
     end
-    params = setParams('SELAct', paramsIn);
+    params = setParams('SILo', paramsIn);
 else
-    params = setParams('SELAct');
+    params = setParams('SILo');
 end
 if ~nargin
     [trialTablefn, dr] =  uigetfile('*.mat', 'Select a trialTable file', '*trialTable*.mat' );
