@@ -1,7 +1,7 @@
 function MultiRoiRegistration(fullPathToTrialTable, paramsIn)
 
 if ~nargin
-    [fn, trialtabledr] = uigetfile('*.mat', 'Select a trialTable file', '*trialTable*.mat' );
+    [fn, trialtabledr] = uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5' );
 else
     [trialtabledr, fn, ext] = fileparts(fullPathToTrialTable); fn = [fn ext];
 end
@@ -16,7 +16,7 @@ end
 params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
 %load the trial Table, which sets correspondences between the two DMDs
-load([trialtabledr filesep fn], 'trialTable');
+trialTable = loadStructFromH5([trialtabledr filesep fn]);
 
 mocosavedr = fullfile(trialTable.savedr,'motion_correction');
 if ~exist(mocosavedr,'dir')
@@ -45,8 +45,8 @@ if poolsize<nWorkers || ~strcmpi(class(p), 'parallel.ProcessPool')
     parpool('processes',nWorkers); %limit the number of workers to avoid running out of RAM %4-30-24, lowering processes again to prevent another error (18 --> 15)
 end
 nDMDs = size(trialTable.filename,1);
-nTrials = size(trialTable.trueTrialIx,2);
-trialTable.registrationFailed = false(nDMDs, nTrials);
+nTrials = size(trialTable.true_trial_ix,2);
+trialTable.motion_correction.registration_failed = false(nDMDs, nTrials);
 
 for DMD_ix = 1:nDMDs
     fnRegDS = cell(1,nTrials);
@@ -62,21 +62,21 @@ for DMD_ix = 1:nDMDs
             [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix), regFail(f_ix)]= alignAsync(trialTable, params, f_ix, DMD_ix);
         end
     end
-    trialTable.registrationFailed(DMD_ix,:) = regFail;
-    if params.isReVolt && ~isfield(trialTable, 'firstLineOriginal')
-        trialTable.firstLineOriginal = trialTable.firstLine;
-        tOffset = firstLine - trialTable.firstLineOriginal(DMD_ix,:);
-        trialTable.firstLine = trialTable.firstLine + tOffset;
+    trialTable.motion_correction.registration_failed(DMD_ix,:) = regFail;
+    if params.isReVolt && ~isfield(trialTable.motion_correction, 'first_line_original')
+        trialTable.motion_correction.first_line_original = trialTable.slap2_info.first_line;
+        tOffset = firstLine - trialTable.motion_correction.first_line_original(DMD_ix,:);
+        trialTable.slap2_info.first_line = trialTable.slap2_info.first_line + tOffset;
     end
-    trialTable.fnRegDS(DMD_ix,:) = fnRegDS;
-    trialTable.fnAdata(DMD_ix,:) = fnAdata;
+    trialTable.motion_correction.fn_reg_ds(DMD_ix,:) = fnRegDS;
+    trialTable.motion_correction.fn_adata(DMD_ix,:) = fnAdata;
 end
 %during alignment of some data we discard initial frames
 
 params.endTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
-trialTable.alignParams = params;
-save([trialtabledr filesep fn], "trialTable")
+trialTable.motion_correction.align_params = params;
+saveStructToH5(trialTable, [trialtabledr filesep fn]);
 
 disp('done multiRoiRegistration.')
 end
@@ -90,14 +90,14 @@ end
 
 mocosavedr = fullfile(trialTable.savedr,'motion_correction');
 fn = trialTable.filename{DMD_ix,f_ix};
-fnW = ['E' int2str(trialTable.epoch(f_ix)) 'T' int2str(f_ix) 'DMD' int2str(DMD_ix)];
-firstLine = trialTable.firstLine(DMD_ix,f_ix);
-lastLine = trialTable.lastLine(DMD_ix, f_ix);
+fnW = ['E' int2str(trialTable.epoch(DMD_ix,f_ix)) 'T' int2str(f_ix) 'DMD' int2str(DMD_ix)];
+firstLine = trialTable.slap2_info.first_line(DMD_ix,f_ix);
+lastLine = trialTable.slap2_info.last_line(DMD_ix, f_ix);
 aData = params;
 
 disp(['Aligning: ' fnW ' of ' [trialTable.datadr filesep fn]])
 fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
-fnAdata = [fnW '_ALIGNMENTDATA.mat'];
+fnAdata = [fnW '_ALIGNMENTDATA.h5'];
 registrationFailed = false;
 
 if ~params.overwriteExisting && exist([mocosavedr filesep fnAdata], 'file') && exist([mocosavedr filesep fnwrite], 'file')
@@ -124,7 +124,7 @@ minSamps = 15; %minimimum number of samples to include in template
 if params.isReVolt
     numChannels = 1;
     redChannel =2;
-    if isfield(trialTable,'firstLineOriginal') &&  ~isnan(trialTable.firstLineOriginal(DMD_ix,f_ix))
+    if isfield(trialTable, 'motion_correction') && isfield(trialTable.motion_correction, 'first_line_original') && ~isnan(trialTable.motion_correction.first_line_original(DMD_ix,f_ix))
         %first line already adjusted
     else
         % load frames until you see the light turn on on channel 2
@@ -227,13 +227,14 @@ if params.refStackTemplate
     if params.isReVolt
         error('refStack alignment not implemented for reVolt imaging')
     end
-    fullTemplate = nan(size(trialTable.refStack{DMD_ix}.IM,[2 1]));
+    dmdRef = trialTable.slap2_info.ref_stack.(['DMD' int2str(DMD_ix)]);
+    fullTemplate = nan(size(dmdRef.IM,[2 1]));
     fullTemplate((min(trimRows)-aData.maxshift):(max(trimRows)+aData.maxshift),(min(trimCols)-aData.maxshift):(max(trimCols)+aData.maxshift)) = template;
 
-    if numel(trialTable.refStack{DMD_ix}.channels) == 2
-        refStack = (trialTable.refStack{DMD_ix}.IM(:,:,1:2:end) + trialTable.refStack{DMD_ix}.IM(:,:,2:2:end))/2;
+    if numel(dmdRef.channels) == 2
+        refStack = (dmdRef.IM(:,:,1:2:end) + dmdRef.IM(:,:,2:2:end))/2;
     else
-        refStack = trialTable.refStack{DMD_ix}.IM;
+        refStack = dmdRef.IM;
     end
     templateShifts = xcorr2_nans(fullTemplate,refStack(:,:,floor(end/2)+1)',[0;0],aData.maxshift);
     T0 = imtranslate(permute(refStack,[2 1 3]),[templateShifts(2:-1:1),0]);
@@ -421,7 +422,34 @@ aData.viewR = viewR;%used to remap images from the datafile into the space of th
 %  Yshifted = interp2(1:sz(2), 1:sz(1), Ytrimmed,aData.viewC+motionC, aData.viewR+motionR, 'linear', nan);
 
 registrationFailed = aData.registrationFailed;
-save([mocosavedr filesep fnAdata], 'aData', '-v7.3');
+
+%build the on-disk alignment struct, following the layout documented in README.md
+toSave = struct();
+toSave.numChannels = aData.numChannels;
+toSave.frametime = aData.frametime;
+toSave.alignHz = aData.alignHz;
+toSave.DSframes = aData.DSframes;
+toSave.motionDSc = aData.motionDSc;
+toSave.motionDSr = aData.motionDSr;
+toSave.recNegErr = aData.recNegErr;
+toSave.registrationFailed = aData.registrationFailed;
+toSave.slap2 = struct();
+toSave.slap2.varFacDS = aData.varFacDS;
+toSave.slap2.aError = aData.aError;
+toSave.slap2.Z = aData.Z;
+toSave.slap2.cropRow = aData.cropRow;
+toSave.slap2.cropCol = aData.cropCol;
+toSave.slap2.viewC = aData.viewC;
+toSave.slap2.viewR = aData.viewR;
+toSave.slap2.trimRows = aData.trimRows;
+toSave.slap2.trimCols = aData.trimCols;
+toSave.slap2.onlineMotionXshift = aData.onlineXshift;
+toSave.slap2.onlineMotionYshift = aData.onlineYshift;
+toSave.slap2.onlineMotionZshift = aData.onlineZshift;
+if isfield(aData, 'motionDSz')
+    toSave.slap2.motionDSz = aData.motionDSz;
+end
+saveStructToH5(toSave, [mocosavedr filesep fnAdata]);
 end
 
 function meta = loadMetadata(datFilename)

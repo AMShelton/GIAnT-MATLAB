@@ -9,13 +9,13 @@ else
     params = setParams('SILo');
 end
 if ~nargin
-    [trialTablefn, dr] =  uigetfile('*.mat', 'Select a trialTable file', '*trialTable*.mat' );
+    [trialTablefn, dr] =  uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5' );
 else
     %parse dr
     %_or_pathToTrialTable
     if exist(dr_or_pathToTrialTable, 'dir')
         dr = dr_or_pathToTrialTable;
-        trialTablefn = 'trialTable.mat';
+        trialTablefn = 'trial_table.h5';
     else
         [dr trialTablefn ext] = fileparts(dr_or_pathToTrialTable);
         trialTablefn = [trialTablefn ext];
@@ -29,19 +29,17 @@ end
 
 params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
-%confirm that all files exist
+%confirm that all files exist (also populates source_extraction.fn_raw)
 [trialTable, keepTrials] = verifyFiles(trialTablefn, dr, params);
 mocodr = fullfile(trialTable.savedr, 'motion_correction');
-% for dmdIx = 1:numel(trialTable.refStack)
-%     trialTable.refStack{dmdIx}.IM = []; %this uses a lot of memory and we won't need it
-%end
+% for dmdKey = fieldnames(trialTable.slap2_info.ref_stack)'
+%     trialTable.slap2_info.ref_stack.(dmdKey{1}).IM = []; %this uses a lot of memory and we won't need it
+% end
 nDMDs = size(trialTable.filename,1); %the trial table has size #DMDs x # trials; Bergamo is treated as '1 DMD'
 nTrials = size(trialTable.filename,2);
 
 %parameters that depend only on the microscope, hidden from GUI
 switch params.microscope
-    case 'SLAP2'
-        trialTable.fnRaw = trialTable.filename;
     case 'bergamo'
         params.analyzeHz = nan;
 end
@@ -65,7 +63,7 @@ if params.drawUserRois
         for DMDix = 1:nDMDs
             %load image data
             firstValidTrial = find(keepTrials(DMDix,:),1,"first");
-            [~, fn, ext] = fileparts(trialTable.fnRegDS{DMDix,firstValidTrial});
+            [~, fn, ext] = fileparts(trialTable.motion_correction.fn_reg_ds{DMDix,firstValidTrial});
             [IM, ~] = ScanImageTiffWrapper(fullfile(mocodr, [fn ext]));
             IM = squeeze(mean(IM,[3 4], 'omitnan'));
             hROIs(DMDix) = drawROIs(sqrt(max(0,IM)), savedr, fn);
@@ -86,16 +84,16 @@ end
 for DMDix = nDMDs:-1:1
     %load some metadata
     firstValidTrial = find(keepTrials(DMDix,:),1,"first");
-    fn = trialTable.fnAdata{DMDix,firstValidTrial};
-    load(fullfile(mocodr, fn), 'aData');
+    fn = trialTable.motion_correction.fn_adata{DMDix,firstValidTrial};
+    aData = loadStructFromH5(fullfile(mocodr, fn));
     numChannels = aData.numChannels;
     params.numChannels = numChannels;
     params.alignHz = aData.alignHz;
     if ~strcmpi(params.microscope, 'SLAP2')
         params.analyzeHz = 1/aData.frametime; %analyze conventional recordings at the acquisitoin framerate
     end
-    if isfield(aData, 'Z')
-        exptSummary.Z(DMDix) = aData.Z;
+    if isfield(aData, 'slap2') && isfield(aData.slap2, 'Z')
+        exptSummary.Z(DMDix) = aData.slap2.Z;
     else
         exptSummary.Z(DMDix) = nan;
         warning('Alignment data missing Z-plane, likely out of date!!')
@@ -110,11 +108,11 @@ for DMDix = nDMDs:-1:1
         else
             poolsize = p.NumWorkers;
         end
-        dd = dir(fullfile(mocodr, trialTable.fnRegDS{DMDix, firstValidTrial}));
+        dd = dir(fullfile(mocodr, trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial}));
         try
             fileSize = dd.bytes;
         catch
-            error(['Error loading registered tiff:' trialTable.fnRegDS{DMDix, firstValidTrial} '\n' 'Are paths in your trial table valid?']);
+            error(['Error loading registered tiff:' trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial} '\n' 'Are paths in your trial table valid?']);
         end
         if ispc
             userMemInfo = memory;
@@ -137,7 +135,7 @@ for DMDix = nDMDs:-1:1
     %Perform Localizations
     disp('Loading data and performing localizations...')
     mIM = cell(1, nTrials); aIM = cell(1,nTrials); alignData = cell(1, nTrials); peaks = cell(1, nTrials); discardFrames = cell(1,nTrials); %rawIMs = cell(1,nTrials)
-    fns = trialTable.fnRegDS(DMDix, :);
+    fns = trialTable.motion_correction.fn_reg_ds(DMDix, :);
     parfor trialIx = 1:nTrials
         if keepTrials(DMDix,trialIx)
             [~, mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}]= loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params); %rawIMs{trialIx}
@@ -284,15 +282,15 @@ for DMDix = nDMDs:-1:1
     end
 
     if any(keepSources)
-        fns = trialTable.fnRaw(DMDix,:);
+        fns = trialTable.source_extraction.fn_raw(DMDix,:);
             if strcmpi(params.microscope, 'SLAP2')
                 if isfield(trialTable, 'datadr') && ~isempty(trialTable.datadr)
                     trialDataDr = trialTable.datadr;
                 else
                     trialDataDr = dr;
                 end
-                fls = trialTable.firstLine(DMDix,:);
-                els = trialTable.lastLine(DMDix,:);
+                fls = trialTable.slap2_info.first_line(DMDix,:);
+                els = trialTable.slap2_info.last_line(DMDix,:);
                 E = processAllTrials_Async(trialDataDr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
             else %BERGAMO (registered movies live under motion_correction)
                 fls = cell(1,numel(fns)); %first frame; leave empty for most uses

@@ -1,16 +1,16 @@
 function trialTable = buildTrialTable(dr, fns, savedr)
-%This function organizes multi-trial recordings and metadata for Bergamo
-%recordings
-%autoMode: no user input required
+%BUILDTRIALTABLE Organize multi-trial recordings and metadata for Bergamo.
+%   trialTable = BUILDTRIALTABLE(dr, fns, savedr) builds the trial_table
+%   struct documented in README.md and writes it to
+%   fullfile(savedr, 'trial_table.h5'). nDMDs is 1 for Bergamo data.
 
-%get a list of tif files in a given folder
 if ~nargin
     dr = uigetdir;
 end
 if nargin<3
     savedr = dr;
 end
-if nargin<2 
+if nargin<2
     unpickedfiles = dir([dr filesep '*.tif']);
 
     epoch = 0;
@@ -38,9 +38,11 @@ else %files were passed to generate an autoTrialTable
     epochfiles{1} = fns;
 end
 
+trialTable.datadr = dr;
+trialTable.savedr = savedr;
+
+nDMDs = 1;
 trialTable.filename = {};
-trialTable.trialEndTimeFromPC = [];
-trialTable.trialStartTimeInferred = [];
 
 trueTrialIx = 0;
 for eIx = 1:epoch %for each epoch
@@ -48,10 +50,10 @@ for eIx = 1:epoch %for each epoch
     for fIx = 1:length(files)
         trueTrialIx = trueTrialIx+1;
         trialTable.filename{1,trueTrialIx} = files{fIx};
-        trialTable.trueTrialIx(trueTrialIx) = trueTrialIx;
-        trialTable.epoch(trueTrialIx) = eIx;
+        trialTable.true_trial_ix(1:nDMDs, trueTrialIx) = trueTrialIx;
+        trialTable.epoch(1:nDMDs, trueTrialIx) = eIx;
     end
 end
 
-save([savedr filesep 'trialTable'], 'trialTable');
+saveStructToH5(trialTable, fullfile(savedr, 'trial_table.h5'));
 end

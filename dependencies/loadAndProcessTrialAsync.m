@@ -1,5 +1,5 @@
 function  [IM, meanIM, IMc, aData, peaks, discardFrames]= loadAndProcessTrialAsync(mocoDr, fn, numChannels, params)
-% mocoDr: directory with motion-corrected outputs (downsampled registered TIFF/H5 and *_ALIGNMENTDATA.mat).
+% mocoDr: directory with motion-corrected outputs (downsampled registered TIFF/H5 and *_ALIGNMENTDATA.h5).
     if endsWith(fn, '.h5')
         desc = h5info([mocoDr filesep fn]);
         IM = h5read([mocoDr filesep fn], ['/', desc.Datasets.Name]);
@@ -16,7 +16,7 @@ function  [IM, meanIM, IMc, aData, peaks, discardFrames]= loadAndProcessTrialAsy
 
     %load alignment data
     fnStemEnd = strfind(fn, '_REGISTERED') -1;
-    load([mocoDr filesep fn(1:fnStemEnd) '_ALIGNMENTDATA.mat'], 'aData');
+    aData = loadStructFromH5([mocoDr filesep fn(1:fnStemEnd) '_ALIGNMENTDATA.h5']);
     aData.dsFac = 1; %SLAP2 data does not have downsampling per se
     params.dsFac = aData.dsFac;
     params.alignHz = aData.alignHz;
@@ -30,9 +30,9 @@ function  [IM, meanIM, IMc, aData, peaks, discardFrames]= loadAndProcessTrialAsy
     discardFrames = imclose(imdilate(tmp>thresh, ones(window,1)) & (tmp>(thresh/2)), ones(window,1));
     discardFrames(1:nInitFrames) = true;
     IM(:,:,discardFrames) = nan;
-    if isfield(aData, 'varFacDS')
-        vIM = aData.varFacDS;
-        aData = rmfield(aData,'varFacDS');
+    if isfield(aData, 'slap2') && isfield(aData.slap2, 'varFacDS')
+        vIM = aData.slap2.varFacDS;
+        aData.slap2 = rmfield(aData.slap2, 'varFacDS');
     else
         vIM = [];
     end

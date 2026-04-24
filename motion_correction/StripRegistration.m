@@ -1,19 +1,19 @@
 function StripRegistration(dr, fns, paramsIn)
 if ~nargin || isempty(dr)
-    [fns, dr] = uigetfile('*.*', 'Select either a trialTable.mat file or your tifs to register', 'MultiSelect','on');
+    [fns, dr] = uigetfile('*.*', 'Select either a trial_table.h5 file or your tifs to register', 'MultiSelect','on');
 end
 if iscell(fns) %user selected multiple tiffs; generate a trial table
-    trialTable = buildTrialTableBergamo(dr, fns);
+    trialTable = buildTrialTable(dr, fns);
+elseif contains(fns, 'trial_table') && endsWith(fns, '.h5') %user selected an existing trial table
+    trialTable = loadStructFromH5([dr filesep fns]);
 elseif contains(fns, '.tif') %user selected single tiff; generate a trial table
-    trialTable = buildTrialTableBergamo(dr, fns);
-elseif endsWith(fns, '.h5') %user selected single h5; generate a trial table
-    trialTable = buildTrialTableBergamo(dr, fns);
-elseif contains(fns, 'trialTable')
-    load([dr filesep fns], 'trialTable');
+    trialTable = buildTrialTable(dr, fns);
+elseif endsWith(fns, '.h5') %user selected single h5 of raw data; generate a trial table
+    trialTable = buildTrialTable(dr, fns);
 else
     error('Must select either TIF files or a trial table file')
 end
-fullPathToTrialTable = [dr filesep 'trialTable.mat'];
+fullPathToTrialTable = [dr filesep 'trial_table.h5'];
 
 %PARAMETER SETTING
 if nargin>2
@@ -57,12 +57,12 @@ if isfield(params, 'denoise20Hz') && params.denoise20Hz
     end
 end
 
-trialTable.fnRegDS = fnRegDS;
-trialTable.fnRaw = fnRaw;
-trialTable.fnAdata = fnAdata;
-trialTable.registrationFailed = regFail;
-trialTable.alignParams = params;
-save(fullPathToTrialTable , "trialTable")
+trialTable.motion_correction.fn_reg_ds = fnRegDS;
+trialTable.motion_correction.fn_raw = fnRaw;
+trialTable.motion_correction.fn_adata = fnAdata;
+trialTable.motion_correction.registration_failed = regFail;
+trialTable.motion_correction.align_params = params;
+saveStructToH5(trialTable, fullPathToTrialTable);
 
 disp('done bergamoRegistration.')
 
@@ -417,8 +417,19 @@ aData.motionDSr = motionDSr;
 %aData.aError = aError;
 %aData.aRankCorr = aRankCorr;
 aData.recNegErr = recNegErr;
-fnAdata = [fnstem '_ALIGNMENTDATA.mat'];
-save([dr filesep fnAdata], 'aData');
+fnAdata = [fnstem '_ALIGNMENTDATA.h5'];
+
+%build the on-disk alignment struct, following the layout documented in README.md
+toSave = struct();
+toSave.numChannels = aData.numChannels;
+toSave.frametime = aData.frametime;
+toSave.alignHz = aData.alignHz;
+toSave.motionC = aData.motionC;
+toSave.motionR = aData.motionR;
+toSave.motionDSc = aData.motionDSc;
+toSave.motionDSr = aData.motionDSr;
+toSave.recNegErr = aData.recNegErr;
+saveStructToH5(toSave, [dr filesep fnAdata]);
 end
 
 
