@@ -1,4 +1,4 @@
-function StripRegistration(dr, fns, paramsIn)
+function params = StripRegistration(dr, fns, paramsIn)
 if ~nargin || isempty(dr)
     [fns, dr] = uigetfile('*.*', 'Select either a trial_table.h5 file or your tifs to register', 'MultiSelect','on');
 end

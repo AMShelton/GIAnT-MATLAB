@@ -1,4 +1,4 @@
-function MultiRoiRegistration(fullPathToTrialTable, paramsIn)
+function params = MultiRoiRegistration(fullPathToTrialTable, paramsIn)
 
 if ~nargin
     [fn, trialtabledr] = uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5' );
