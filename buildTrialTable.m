@@ -1,32 +1,43 @@
-function trialTable = buildTrialTable(dr, fns, savedr)
+function trialTable = buildTrialTable(dr, savedr, useAllFiles, fns)
 %BUILDTRIALTABLE Organize multi-trial recordings and metadata for Bergamo.
-%   trialTable = BUILDTRIALTABLE(dr, fns, savedr) builds the trial_table
+%   trialTable = BUILDTRIALTABLE(dr, savedr, useAllFiles, fns) builds the trial_table
 %   struct documented in README.md and writes it to
 %   fullfile(savedr, 'trial_table.h5'). nDMDs is 1 for Bergamo data.
 
-if ~nargin
+if nargin < 1 || isempty(dr)
     dr = uigetdir;
 end
-if nargin<3
+if nargin < 2 || isempty(savedr)
     savedr = dr;
 end
-if nargin<2
-    unpickedfiles = dir([dr filesep '*.tif']);
+if nargin < 3 || isempty(useAllFiles)
+    useAllFiles = false;
+end
+if nargin < 4
+    fns = [];
+end
 
-    epoch = 0;
-    while ~isempty(unpickedfiles)
-        [indx,tf] = listdlg('ListString',{unpickedfiles.name}, 'PromptString',['Select files for EPOCH ' int2str(epoch)]);
-        if ~tf
-            break
+if isempty(fns)
+    unpickedfiles = dir([dr filesep '*.tif']);
+    if useAllFiles
+        epoch = 1;
+        epochfiles{1} = {unpickedfiles.name};
+    else
+        epoch = 0;
+        while ~isempty(unpickedfiles)
+            [indx,tf] = listdlg('ListString',{unpickedfiles.name}, 'PromptString',['Select files for EPOCH ' int2str(epoch)]);
+            if ~tf
+                break
+            end
+            epoch = epoch+1;
+            epochfiles{epoch} = {unpickedfiles(indx).name};
+            unpickedfiles(indx) = [];
         end
-        epoch = epoch+1;
-        epochfiles{epoch} = {unpickedfiles(indx).name};
-        unpickedfiles(indx) = [];
     end
-elseif contains(fns, '.h5')
+elseif (ischar(fns) || isstring(fns)) && contains(fns, '.h5')
     epoch = 1;
     epochfiles{1} = {fns};
-elseif ~iscell(fns) && (contains(fns, '.tif') || fns==true) %generate an autoTrialTable with all files
+elseif ~iscell(fns) && (((ischar(fns) || isstring(fns)) && contains(fns, '.tif')) || isequal(fns, true)) %generate an autoTrialTable with all files
     %select all tif files in folder that are not REGISTERED and put them in
     %a single epoch
     epoch = 1;

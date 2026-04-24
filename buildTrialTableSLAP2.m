@@ -1,4 +1,4 @@
-function trialTable = buildTrialTableSLAP2(dr,savedr)
+function trialTable = buildTrialTableSLAP2(dr,savedr,useAllFiles)
 %BUILDTRIALTABLESLAP2 Organize multi-trial SLAP2 recordings and reference images.
 %   Builds the trial_table struct documented in README.md and writes it to
 %   fullfile(savedr, 'trial_table.h5'). SLAP2-specific metadata (reference
@@ -19,6 +19,9 @@ end
 if nargin < 2
     savedr = dr;
 end
+if nargin < 3
+    useAllFiles = false;
+end
 unpickedfiles = dir([dr filesep '*.dat']);
 
 %remove extra 'multicycle' files from list; they will be represented by first file
@@ -33,15 +36,20 @@ for ix = 1:length(unpickedfiles)
 end
 unpickedfiles = unpickedfiles(~removeFiles);
 
-epoch = 0;
-while ~isempty(unpickedfiles)
-    [indx,tf] = listdlg('ListString',{unpickedfiles.name}, 'PromptString',['Select files for EPOCH ' int2str(epoch)]);
-    if ~tf
-        break
+if useAllFiles
+    epoch = 1;
+    epochfiles{1} = unpickedfiles;
+else
+    epoch = 0;
+    while ~isempty(unpickedfiles)
+        [indx,tf] = listdlg('ListString',{unpickedfiles.name}, 'PromptString',['Select files for EPOCH ' int2str(epoch)]);
+        if ~tf
+            break
+        end
+        epoch = epoch+1;
+        epochfiles{epoch} = unpickedfiles(indx);
+        unpickedfiles(indx) = [];
     end
-    epoch = epoch+1;
-    epochfiles{epoch} = unpickedfiles(indx);
-    unpickedfiles(indx) = [];
 end
 
 %first, load the reference images, deduce the imaging plane of the ROI, and
