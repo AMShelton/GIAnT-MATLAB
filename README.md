@@ -75,6 +75,27 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
     └ 📄 onlineMotionZshift
 ```
 
+## Manual Annotations
+
+In our pipeline, users can manually annotate pixels to exclude from analysis or pixels that correspond to soma, whose signals should be extracted (the pipeline has typically been used for single-neuron simultaneous glutamate + calcium imaging experiments on the SLAP2). When ROIs are annotated (either in `annotateROIs.m` or `SILo.m`), information about the ROIs are saved in the `annotations.h5` file. The structure of that file is as below
+
+```
+📦 annotations.h5
+ └ 📦 DMD{1,2}
+    ├ 📄 dr
+    ├ 📄 fn
+    ├ 📄 n_rois
+    └ 📦 roi_###
+       ├ 📄 type
+       ├ 📄 label
+       ├ 📄 mask
+       ├ 📄 position (polygon only)
+       ├ 📄 center (circle/ellipse)
+       ├ 📄 semi_axes (ellipse)
+       ├ 📄 rotation_angle (ellipse)
+       └ 📄 radius (circle)
+```
+
 ## File Field Descriptions
 
 ### `trial_table.h5`
@@ -134,3 +155,23 @@ Top-level fields are shared across microscopes; `motionC`/`motionR`/`registratio
 | `slap2/onlineMotionXshift` | 1 x nDSframes | numeric | Online motion-correction X shift from the microscope |
 | `slap2/onlineMotionYshift` | 1 x nDSframes | numeric | Online motion-correction Y shift from the microscope |
 | `slap2/onlineMotionZshift` | 1 x nDSframes | numeric | Online motion-correction Z shift from the microscope |
+
+### `annotations.h5`
+
+`annotations.h5` is written by `annotateROIs.m` and by `SILo.m` (when `drawUserRois=true`).  
+String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Python compatibility.
+
+| Field | Size | Data type | Description |
+| --- | --- | --- | --- |
+| `DMD{n}` | — | group | One group per DMD in trial-table order |
+| `DMD{n}/dr` | 1 x nChars | uint16 | Motion-correction directory used while drawing these ROIs |
+| `DMD{n}/fn` | 1 x nChars | uint16 | Trial stem used when displaying ROI GUI |
+| `DMD{n}/n_rois` | 1 x 1 | uint32 | Number of saved ROI entries for this DMD |
+| `DMD{n}/roi_###/type` | 1 x nChars | uint16 | ROI geometry type: `polygon`, `circle`, or `ellipse` |
+| `DMD{n}/roi_###/label` | 1 x nChars | uint16 | User label (e.g., `SOMA`) |
+| `DMD{n}/roi_###/mask` | rows x cols | uint8 | Binary ROI mask in image coordinates (1 = included pixel) |
+| `DMD{n}/roi_###/position` | nVertices x 2 | double | Polygon vertices `[x y]` (polygon only) |
+| `DMD{n}/roi_###/center` | 1 x 2 | double | Center `[x y]` (circle/ellipse) |
+| `DMD{n}/roi_###/semi_axes` | 1 x 2 | double | Ellipse semi-axes lengths (ellipse only) |
+| `DMD{n}/roi_###/rotation_angle` | 1 x 1 | double | Ellipse rotation angle in degrees (ellipse only) |
+| `DMD{n}/roi_###/radius` | 1 x 1 | double | Circle radius (circle only) |

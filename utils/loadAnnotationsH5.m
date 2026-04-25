@@ -1,0 +1,111 @@
+function ROIs = loadAnnotationsH5(filename)
+%LOADANNOTATIONSH5 Load manual ROI annotations from an HDF5 file.
+
+if nargin < 1 || isempty(filename)
+    error('loadAnnotationsH5:MissingFilename', 'A source filename must be provided.');
+end
+if ~exist(filename, 'file')
+    error('loadAnnotationsH5:FileNotFound', 'File not found: %s', filename);
+end
+
+info = h5info(filename);
+dmdNames = {};
+for gix = 1:numel(info.Groups)
+    parts = strsplit(info.Groups(gix).Name, '/');
+    grpName = parts{end};
+    if startsWith(grpName, 'DMD')
+        dmdNames{end+1} = grpName; %#ok<AGROW>
+    end
+end
+
+if isempty(dmdNames)
+    ROIs = struct([]);
+    return
+end
+
+dmdNums = nan(size(dmdNames));
+for ix = 1:numel(dmdNames)
+    dmdNums(ix) = sscanf(dmdNames{ix}, 'DMD%d');
+end
+[~, order] = sort(dmdNums);
+dmdNames = dmdNames(order);
+
+ROIs = repmat(struct('dr', '', 'fn', '', 'roiData', {{}}), 1, numel(dmdNames));
+for DMDix = 1:numel(dmdNames)
+    dmdPath = ['/' dmdNames{DMDix}];
+    ROIs(DMDix).dr = readStringOrDefault(filename, [dmdPath '/dr'], '');
+    ROIs(DMDix).fn = readStringOrDefault(filename, [dmdPath '/fn'], '');
+
+    nRois = double(readNumericOrDefault(filename, [dmdPath '/n_rois'], uint32(0)));
+    roiData = cell(1, nRois);
+    for rix = 1:nRois
+        roiPath = sprintf('%s/roi_%03d', dmdPath, rix);
+
+        typeRaw = readStringOrDefault(filename, [roiPath '/type'], '');
+        S = struct();
+        S.Type = denormalizeType(typeRaw);
+        S.Label = readStringOrDefault(filename, [roiPath '/label'], '');
+        S.mask = logical(readNumericOrDefault(filename, [roiPath '/mask'], uint8([])));
+
+        position = readNumericOrDefault(filename, [roiPath '/position'], []);
+        if ~isempty(position)
+            S.Position = double(position);
+        end
+
+        center = readNumericOrDefault(filename, [roiPath '/center'], []);
+        if ~isempty(center)
+            S.Center = double(center(:).');
+        end
+
+        semiAxes = readNumericOrDefault(filename, [roiPath '/semi_axes'], []);
+        if ~isempty(semiAxes)
+            S.SemiAxes = double(semiAxes(:).');
+            S.AspectRatio = S.SemiAxes(1) ./ max(eps, S.SemiAxes(2));
+            S.FixedAspectRatio = false;
+        end
+
+        rotationAngle = readNumericOrDefault(filename, [roiPath '/rotation_angle'], []);
+        if ~isempty(rotationAngle)
+            S.RotationAngle = double(rotationAngle(1));
+        end
+
+        radius = readNumericOrDefault(filename, [roiPath '/radius'], []);
+        if ~isempty(radius)
+            S.Radius = double(radius(1));
+        end
+
+        roiData{rix} = S;
+    end
+    ROIs(DMDix).roiData = roiData;
+end
+end
+
+function value = readStringOrDefault(filename, path, defaultValue)
+try
+    raw = h5read(filename, path);
+    value = char(uint16(raw(:)).');
+catch
+    value = defaultValue;
+end
+end
+
+function value = readNumericOrDefault(filename, path, defaultValue)
+try
+    value = h5read(filename, path);
+catch
+    value = defaultValue;
+end
+end
+
+function typeOut = denormalizeType(typeIn)
+switch lower(strtrim(typeIn))
+    case 'polygon'
+        typeOut = 'images.roi.polygon';
+    case 'circle'
+        typeOut = 'images.roi.circle';
+    case 'ellipse'
+        typeOut = 'images.roi.ellipse';
+    otherwise
+        typeOut = typeIn;
+end
+end

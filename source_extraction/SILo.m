@@ -30,7 +30,7 @@ end
 params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
 %confirm that all files exist (also populates source_extraction.fn_raw)
-[trialTable, keepTrials] = verifyFiles(trialTablefn, dr, params);
+[trialTable, keepTrials] = verifyFiles(trialTablefn, dr);
 mocodr = fullfile(trialTable.savedr, 'motion_correction');
 % for dmdKey = fieldnames(trialTable.slap2_info.ref_stack)'
 %     trialTable.slap2_info.ref_stack.(dmdKey{1}).IM = []; %this uses a lot of memory and we won't need it
@@ -56,9 +56,9 @@ fnsave = [savedr filesep 'ExperimentSummary-' datestr(now, 'YYmmDD-HHMMSS') '.ma
 
 %call up a GUI for the user to define Soma ROI and regions to exclude
 if params.drawUserRois
-    fnAnn = [savedr filesep 'ANNOTATIONS.mat'];
-    if exist(fnAnn, 'file')
-        load(fnAnn, 'ROIs')
+    fnAnnH5 = [savedr filesep 'annotations.h5'];
+    if exist(fnAnnH5, 'file')
+        ROIs = loadAnnotationsH5(fnAnnH5);
     else
         for DMDix = 1:nDMDs
             %load image data
@@ -67,14 +67,14 @@ if params.drawUserRois
             [IM, ~] = ScanImageTiffWrapper(fullfile(mocodr, [fn ext]));
             IM = squeeze(mean(IM,[3 4], 'omitnan'));
             hROIs(DMDix) = drawROIs(sqrt(max(0,IM)), savedr, fn);
-            ROIs(DMDix).dr = dr;
+            ROIs(DMDix).dr = mocodr;
             ROIs(DMDix).fn = fn;
         end
         for DMDix = 1:nDMDs
             waitfor(hROIs(DMDix).hF);
             ROIs(DMDix).roiData = hROIs(DMDix).roiData;
         end
-        save(fnAnn, 'ROIs'); clear hROIs;
+        saveAnnotationsH5(fnAnnH5, ROIs); clear hROIs;
     end
 else
     ROIs = [];

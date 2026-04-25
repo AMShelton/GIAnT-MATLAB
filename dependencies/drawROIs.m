@@ -176,7 +176,7 @@ classdef drawROIs < handle
                             disp('circle was incomplete, creating a dud circle to delete later')
                             obj.hROIs(rix) = images.roi.Circle(obj.hAx,'Center', [5, 5], 'Label', 'dud');
                         else
-                            obj.hROIs(rix) = images.roi.Circle(obj.hAx,'Center', roiData{rix}.Center, 'Label', roiData{rix}.Label);
+                            obj.hROIs(rix) = images.roi.Circle(obj.hAx,'Center', roiData{rix}.Center, 'Radius', roiData{rix}.Radius, 'Label', roiData{rix}.Label);
                         end
                     
                     case 'images.roi.polygon'
@@ -232,7 +232,7 @@ classdef drawROIs < handle
                             disp('circle was incomplete, creating a dud circle to delete later')
                             obj.hROIs(rix) = images.roi.Circle(obj.hAx,'Center', [5, 5], 'Label', 'dud');
                         else
-                            obj.hROIs(rix) = images.roi.Circle(obj.hAx,'Center', roiData{rix}.Center, 'Label', roiData{rix}.Label);
+                            obj.hROIs(rix) = images.roi.Circle(obj.hAx,'Center', roiData{rix}.Center, 'Radius', roiData{rix}.Radius, 'Label', roiData{rix}.Label);
                         end
                     
                     case 'images.roi.polygon'

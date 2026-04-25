@@ -1,4 +1,4 @@
-function [trialTable, keepTrials] = verifyFiles(fn,dr, params)
+function [trialTable, keepTrials] = verifyFiles(fn,dr)
 
 trialTable = loadStructFromH5([dr filesep fn]);
 
