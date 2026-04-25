@@ -1,4 +1,4 @@
-function SILo(dr_or_pathToTrialTable, paramsIn)
+function params = SILo(dr_or_pathToTrialTable, paramsIn)
 %PARAMETER SETTING
 if nargin>1
     if ischar(paramsIn)  % Parse JSON String to Structure
