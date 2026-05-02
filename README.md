@@ -23,25 +23,25 @@ Each experiment processed with GIAnT first gets a trial_table.h5 file that summa
  ├ 📄 filename
  ├ 📄 true_trial_ix
  ├ 📄 epoch
- ├ 📦 slap2
- |  ├ 📦 ref_stack
- |  |  └ 📦 DMD{1,2}
- |  |     ├ IM
- |  |     ├ channels
- |  |     ├ Zs
- |  |     └ dmdPixel2SampleTransform
+ ├ 📂 slap2
+ |  ├ 📂 ref_stack
+ |  |  └ 📂 DMD{1,2}
+ |  |     ├ 📄 IM
+ |  |     ├ 📄 channels
+ |  |     ├ 📄 Zs
+ |  |     └ 📄 dmdPixel2SampleTransform
  |  ├ 📄 first_line
  |  ├ 📄 last_line
  |  ├ 📄 trial_start_time_inferred
  |  └ 📄 trial_end_time_from_pc
- ├ 📦 motion_correction
+ ├ 📂 motion_correction
  |  ├ 📄 fn_reg_ds
  |  ├ 📄 fn_adata
  |  ├ 📄 fn_raw
  |  ├ 📄 registration_failed
  |  ├ 📄 first_line_original
- |  └ 📦 align_params
- └ 📦 source_extraction
+ |  └ 📄 align_params
+ └ 📂 source_extraction
     └ 📄 fn_raw
 ```
 
@@ -60,7 +60,7 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
  ├ 📄 motionR
  ├ 📄 DSframes
  ├ 📄 registrationFailed
- └ 📦 slap2
+ └ 📂 slap2
     ├ 📄 varFacDS
     ├ 📄 aError
     ├ 📄 Z
@@ -81,11 +81,11 @@ In our pipeline, users can manually annotate pixels to exclude from analysis or 
 
 ```
 📦 annotations.h5
- └ 📦 DMD{1,2}
+ └ 📂 DMD{1,2}
     ├ 📄 dr
     ├ 📄 fn
     ├ 📄 n_rois
-    └ 📦 roi_###
+    └ 📂 roi_###
        ├ 📄 type
        ├ 📄 label
        ├ 📄 mask
@@ -95,6 +95,45 @@ In our pipeline, users can manually annotate pixels to exclude from analysis or 
        ├ 📄 rotation_angle (ellipse)
        └ 📄 radius (circle)
 ```
+
+## Experiment Summary
+
+The final step of the pipeline, source extraction (Source Identification by Activity Localization; SILo), outputs an `experiment_summary.h5` file which contains the extracted sources as well as other useful data about the experiment. The structure of that file is as follows
+
+```
+📦 experiment_summary.h5
+ └ 📂 DMD{1,2}
+    ├ 📂 frame_info
+    |  ├ 📄 offlineXshifts (total frames x 1)
+    |  ├ 📄 offlineYshifts (total frames x 1)
+    |  ├ 📄 offlineZshifts (total frames x 1)
+    |  ├ 📄 onlineXshifts (total frames x 1)
+    |  ├ 📄 onlineYshifts (total frames x 1)
+    |  ├ 📄 onlineZshifts (total frames x 1)
+    |  ├ 📄 trial_num_frames (trials x 1)
+    |  ├ 📄 frame_line_idxs (total frames x 1)
+    |  └ 📄 discard_frames (total frames x 1)
+    ├ 📂 visualizations
+    |  ├ 📄 mean_im (channels x fastz x rows x cols)
+    |  ├ 📄 ref_stack (ref_stack_channels x depths x rows x cols)
+    |  |  └ 📄 channels (ref_stack_channels x 1)
+    |  └ 📄 act_im (fastz x rows x cols)
+    ├ 📂 global
+    |  └ 📄 F (total frames x 1)
+    ├ 📂 user_rois
+    |  ├ 📄 mask (fastz x rows x cols x rois)
+    |  ├ 📄 Fsvd (total frames x rois)
+    |  └ 📄 F (total frames x rois)
+    └ 📂 sources
+       ├ 📂 spatial
+       |  ├ 📄 profiles (sources x fastz x rows x cols)
+       |  └ 📄 coords (sources x 2 [z_loc, x_loc, y_loc])*
+       └ 📂 temporal
+          ├ 📄 dF (total frames x sources)
+          ├ 📄 dFF (total frames x sources)
+          └ 📄 F0 (total frames x sources)
+```
+
 
 ## File Field Descriptions
 
