@@ -20,7 +20,7 @@ for i = 1:numel(validTrials)
     disp(['Processing trial ' int2str(validTrials(i)) ' from ' fns{nLoad}])
     %Y = squeeze(CD.Yobs(:,1,:));
     Y = permute(CD.Yobs, [1 3 2]);
-    resultsFuture = extractTrial(Y,CD.Finv, sources, any(selPix,3), params);
+    resultsFuture = extractTrial(Y,CD.Finv, sources, any(selPix,3), params, alignData{nLoad});
     clear CD;
 end
 
@@ -98,6 +98,9 @@ switch params.microscope
         %upsample motion
         motionC = interp1(alignData.DSframes, alignData.motionDSc, frameLines, 'pchip', 'extrap') + motOutput(2);
         motionR = interp1(alignData.DSframes, alignData.motionDSr, frameLines, 'pchip', 'extrap') + motOutput(1);
+        CD.motionC = motionC;
+        CD.motionR = motionR;
+
         viewC = alignData.viewC(1,:);
         viewR = alignData.viewR(:,1);
 
@@ -189,6 +192,9 @@ switch params.microscope
         %upsample motion
         viewC = (1:size(IM,2)) + motOutput(2);
         viewR = (1:size(IM,1))' + motOutput(1);
+
+        CD.motionC = alignData.motionC;
+        CD.motionR = alignData.motionR;
         
         meanIM = meanIM(1:size(IM,1), 1:size(IM,2),:);
         scored = medfilt2(meanIM(:,:,params.activityChannel), [3 3]);
@@ -210,11 +216,13 @@ switch params.microscope
             nFramesInBlock = length(fIxs);
             
             Y = IM(:,:,:,fIxs); %reduce communication overhead to parallel workers
+            nanMask = isnan(Y);
             Y2 = nan(length(viewR),length(viewC),numChannels, nFramesInBlock);
             Finv = nan(length(viewR),length(viewC),nFramesInBlock);
             parfor frIx = 1:nFramesInBlock
                 [Y2(:,:,:,frIx), Finv(:,:,frIx)] = interpFrames(Y(:,:,orderedChannels,frIx),viewC, viewR, Fresh);
             end
+            Y2(nanMask) = nan;
 
             Y2 = reshape(Y2, nPx, numChannels, nFramesInBlock);
             Finv= reshape(Finv, nPx, nFramesInBlock);
@@ -225,7 +233,7 @@ switch params.microscope
             %compute global ROI activity
             yLabeled = double(Y2(labeled(:),:,:)); nans= isnan(yLabeled(:,1,:));
             M = repmat(mLabeled,1,1,nFramesInBlock); M(nans) = nan;
-            CD.global.F(:,fIxs) = (sum(yLabeled,1, 'omitmissing')./sum(M,1, 'omitmissing')).*sumF;
+            CD.global.F(orderedChannels,fIxs) = (sum(yLabeled,1, 'omitmissing')./sum(M,1, 'omitmissing')).*sumF;
 
             %compute user ROI activity
             for rix = length(roiData):-1:1
@@ -271,7 +279,52 @@ while any(isnan(nanFill), 'all')
 end
 IMsel(nans) = nanFill(nans); 
 Finvsel(squeeze(nans(:,1,:))) = 1000*mean(Finvsel,'all', 'omitmissing');
-CD.Yobs = IMsel; 
+
+% % Regress out motion from movie
+% validFrames = find(any(~nans,1));
+% numChannels = size(IMsel,2);
+% IMselNoMo = nan(size(IMsel));
+% for chIx = 1:numChannels
+%     B_est = splitFreq(squeeze(IMsel(:,chIx,:)), ceil(params.denoiseWindow_s.*params.analyzeHz), ceil(params.baselineWindow_samps/ceil(params.denoiseWindow_s.*params.analyzeHz)));
+%     [U,S,V] = svds(squeeze(IMsel(:,chIx,validFrames))-B_est(:,validFrames),1);
+%     V_lp = zeros(size(IMsel,3),1);
+%     V_lp(validFrames) = smoothdata(V(:,1),1,"movmean",max(5,ceil(0.05.*params.analyzeHz)), 'omitmissing'); % denoise motion trace using 50 ms window
+%     IMselNoMo(:,chIx,:) = squeeze(IMsel(:,chIx,:)) - U*V_lp'.*S;
+% end
+
+% IMsel = IMselNoMo;
+% clear IMselNoMo;
+
+CD.Yobs = IMsel;
 CD.Finv = Finvsel;
 CD.discardFrames = discard;
 end
+
+% function [LP,HP] = splitFreq(A, denoiseWindow, LPfactor)
+% nPages= floor(size(A,2)./denoiseWindow);
+% totSamps = nPages*denoiseWindow;
+% t = 1:size(A,2);
+
+% a = reshape(A(:,1:totSamps), size(A,1), denoiseWindow, nPages); % #pixels x #samps/page x #pages
+% Ma = squeeze(mean(a,2, 'omitmissing'));
+% SMa = smoothdata(Ma,2, 'lowess',LPfactor, 'omitmissing');
+% resid = Ma-SMa;
+% lowVals = ordfilt2(resid, max(2,ceil(0.15*LPfactor)), ones([1 LPfactor]));
+% Ma(~lowVals) = nan;
+% SMa = smoothdata(Ma,2, 'lowess',LPfactor, 'omitmissing');
+% for iter = 1:3
+%     selNans = isnan(SMa);
+%     if any(selNans(:))
+%         tmp = smoothdata(SMa,2, 'lowess',LPfactor, 'omitmissing');
+%         SMa(selNans) = tmp(selNans); 
+%     else
+%         break
+%     end
+% end
+% tDS = (denoiseWindow+1)/2 + (denoiseWindow).*(0:size(SMa,2)-1);
+% LP = nan(size(A));
+% for pxIx = 1:size(LP,1)
+%     LP(pxIx,:) = interp1(tDS,SMa(pxIx,:)',t,'linear','extrap');
+% end
+% HP = A-LP;
+% end
