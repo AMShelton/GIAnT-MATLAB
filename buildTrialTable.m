@@ -18,7 +18,7 @@ if nargin < 4
 end
 
 if isempty(fns)
-    unpickedfiles = dir([dr filesep '*.tif']);
+    unpickedfiles = collectTrialSourceFiles(dr, false);
     if useAllFiles
         epoch = 1;
         epochfiles{1} = {unpickedfiles.name};
@@ -67,4 +67,24 @@ for eIx = 1:epoch %for each epoch
 end
 
 saveStructToH5(trialTable, fullfile(savedr, 'trial_table.h5'));
+end
+
+function files = collectTrialSourceFiles(dr, excludeDerived)
+%COLLECTTRIALSOURCEFILES List .tif and .h5 movie candidates in a directory.
+if nargin < 2 || isempty(excludeDerived)
+    excludeDerived = false;
+end
+dTif = dir([dr filesep '*.tif']);
+dH5 = dir([dr filesep '*.h5']);
+files = [dTif; dH5];
+if isempty(files)
+    return
+end
+[~, ord] = sort({files.name});
+files = files(ord);
+if excludeDerived
+    nm = {files.name};
+    mask = ~contains(nm, 'REGISTERED') & ~strcmpi(nm, 'trial_table.h5');
+    files = files(mask);
+end
 end
