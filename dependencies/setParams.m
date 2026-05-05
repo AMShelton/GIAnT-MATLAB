@@ -66,7 +66,6 @@ switch fnName
         params.removeLines = 4; tooltips.removeLines = 'remove this many flyback lines from the top of each image';
         params.ds_time = 3; tooltips.ds_time = 'movies are downsampled (2^ds_time)x in time for alignment';
         params.frameRate = 0; tooltips.frameRate = 'imaging frame rate; if 0, calculated from metadata or set as default';
-        params.denoise20Hz = false;
         params.saveTif = true; tooltips.saveTif = 'whether to save registered movie as .tif or .h5';
     otherwise
         error('Unknown function name passed to setParams.m')

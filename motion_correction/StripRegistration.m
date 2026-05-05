@@ -1,24 +1,31 @@
-function params = StripRegistration(dr, fns, paramsIn)
-if ~nargin || isempty(dr)
-    [fns, dr] = uigetfile('*.*', 'Select either a trial_table.h5 file or your tifs to register', 'MultiSelect','on');
-end
-if iscell(fns) %user selected multiple tiffs; generate a trial table
-    trialTable = buildTrialTable(dr, fns);
-elseif contains(fns, 'trial_table') && endsWith(fns, '.h5') %user selected an existing trial table
-    trialTable = loadStructFromH5([dr filesep fns]);
-elseif contains(fns, '.tif') %user selected single tiff; generate a trial table
-    trialTable = buildTrialTable(dr, fns);
-elseif endsWith(fns, '.h5') %user selected single h5 of raw data; generate a trial table
-    trialTable = buildTrialTable(dr, fns);
+function params = StripRegistration(fullPathToTrialTable, paramsIn)
+%STRIPREGISTRATION Bergamo strip alignment using a pre-built trial_table.h5.
+%   params = STRIPREGISTRATION() prompts for trial_table.h5 (see BUILDTRIALTABLE).
+%   params = STRIPREGISTRATION(fullPathToTrialTable)
+%   params = STRIPREGISTRATION(fullPathToTrialTable, paramsIn)  % same pattern as MultiRoiRegistration
+
+if ~nargin || isempty(fullPathToTrialTable)
+    [fn, trialtabledr] = uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5');
+    if isequal(fn, 0)
+        error('StripRegistration:NoTrialTable', 'A trial_table.h5 file is required. Build one with buildTrialTable first.');
+    end
 else
-    error('Must select either TIF files or a trial table file')
+    [trialtabledr, fn, ext] = fileparts(fullPathToTrialTable);
+    fn = [fn ext];
 end
-fullPathToTrialTable = [dr filesep 'trial_table.h5'];
+
+trialTable = loadStructFromH5(fullfile(trialtabledr, fn));
+
+mocodr = fullfile(trialTable.savedr, 'motion_correction');
+if ~exist(mocodr, 'dir')
+    mkdir(mocodr);
+end
+dataDr = trialTable.datadr;
 
 %PARAMETER SETTING
-if nargin>2
-    if ischar(paramsIn)  % Parse JSON String to Structure
-        paramsIn = jsondecode(paramsIn);
+if nargin > 1
+    if ischar(paramsIn) || isstring(paramsIn)
+        paramsIn = jsondecode(char(paramsIn));
     end
     params = setParams('StripRegistration', paramsIn);
 else
@@ -48,15 +55,12 @@ nTrials= numel(trialTable.filename);
 fnRegDS = cell(1, nTrials); fnRaw = cell(1, nTrials); fnAdata = cell(1, nTrials);
 regFail = false(1, nTrials);
 parfor f_ix = 1:nTrials
-    [fnRegDS{f_ix}, fnRaw{f_ix}, fnAdata{f_ix}, regFail(f_ix)]= alignAsync(dr, trialTable, params, f_ix);
+    [fnRegDS{f_ix}, fnRaw{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignAsync(dataDr, mocodr, trialTable, params, f_ix);
 end
 
-if isfield(params, 'denoise20Hz') && params.denoise20Hz
-    for ix = 1:length(fnRaw)
-        [fnRaw{ix}, fnRegDS{ix}] = denoise20Hz(dr, fnRaw{ix}, params.ds_time);
-    end
+if ~isfield(trialTable, 'motion_correction') || isempty(trialTable.motion_correction)
+    trialTable.motion_correction = struct();
 end
-
 trialTable.motion_correction.fn_reg_ds = fnRegDS;
 trialTable.motion_correction.fn_raw = fnRaw;
 trialTable.motion_correction.fn_adata = fnAdata;
@@ -69,7 +73,7 @@ disp('done bergamoRegistration.')
 end
 
 
-function [fnDS, fnRaw, fnAdata, registrationFailed] = alignAsync(dr, trialTable, params, f_ix);
+function [fnDS, fnRaw, fnAdata, registrationFailed] = alignAsync(dataDr, outDr, trialTable, params, f_ix)
 maxshift = params.maxshift;
 dsFac = 2^params.ds_time; params.dsFac = dsFac;
 registrationFailed = false;
@@ -79,13 +83,13 @@ fn = trialTable.filename{f_ix};
 fnstem = fn;
 fn = strcat(fn,ext);
 
-disp(['Aligning: ' [dr filesep fn]])
+disp(['Aligning: ' [dataDr filesep fn]])
 
 if endsWith(fn, '.h5')
-    desc = h5info([dr filesep fn]);
-    Ad = single(h5read([dr filesep fn], ['/', desc.Datasets.Name]));
+    desc = h5info([dataDr filesep fn]);
+    Ad = single(h5read([dataDr filesep fn], ['/', desc.Datasets.Name]));
 else
-    [Ad, meta, desc] = ScanImageTiffWrapper([dr filesep fn]);
+    [Ad, meta, desc] = ScanImageTiffWrapper([dataDr filesep fn]);
     Ad = single(Ad);
 end
 try
@@ -336,9 +340,9 @@ tiffSave(nanRows,:,:) = [];
 tiffSave(:,nanCols,:) = [];
 
 if params.saveTif
-    networkTiffWriter(tiffSave, [dr filesep fnDS], pixelscale);
+    writeStackBigTiff(tiffSave, [outDr filesep fnDS], pixelscale);
 else
-    h5fn = [dr filesep strrep(fnDS,'.tif','.h5')];
+    h5fn = [outDr filesep strrep(fnDS,'.tif','.h5')];
     h5sz = size(tiffSave);
     h5create(h5fn, '/data', h5sz, 'Datatype', 'single', 'Deflate', 4, 'ChunkSize', [h5sz(1) h5sz(2) min(500, h5sz(3))]);
     h5write(h5fn, '/data', tiffSave);
@@ -366,10 +370,7 @@ for ch = 1:numChannels
     Bmean(nanRows,:) = [];
     Bmean(:,nanCols) = [];
     fnwrite = [fnstem '_REGISTERED_AVG_CH' num2str(ch) '_8bit.tif'];
-    networkTiffWriter(single(Bmean), [dr filesep fnwrite], pixelscale);
-    % fTIF = Fast_BigTiff_Write(fnwrite,pixelscale,0);
-    % fTIF.WriteIMG(single(Bmean));
-    % fTIF.close;
+    writeStackBigTiff(single(Bmean), [outDr filesep fnwrite], pixelscale);
 end
 
 % %save an original-time-resolution recording
@@ -400,9 +401,9 @@ for frame = 1:length(motionC)
 end
 
 if params.saveTif
-    networkTiffWriter(single(tiffSave), [dr filesep fnRaw], pixelscale);
+    writeStackBigTiff(single(tiffSave), [outDr filesep fnRaw], pixelscale);
 else
-    h5fn = [dr filesep strrep(fnRaw,'.tif','.h5')];
+    h5fn = [outDr filesep strrep(fnRaw,'.tif','.h5')];
     h5sz = size(tiffSave);
     h5create(h5fn, '/data', h5sz, 'Datatype', 'single', 'Deflate', 4, 'ChunkSize', [h5sz(1) h5sz(2) min(500, h5sz(3))]);
     h5write(h5fn, '/data', single(tiffSave));
@@ -429,7 +430,7 @@ toSave.motionR = aData.motionR;
 toSave.motionDSc = aData.motionDSc;
 toSave.motionDSr = aData.motionDSr;
 toSave.recNegErr = aData.recNegErr;
-saveStructToH5(toSave, [dr filesep fnAdata]);
+saveStructToH5(toSave, [outDr filesep fnAdata]);
 end
 
 
@@ -462,4 +463,16 @@ catch
     disp('reached End of File');
     done = true;
 end
+end
+
+function writeStackBigTiff(img, filepath, pixelscale)
+fTIF = Fast_BigTiff_Write(filepath, pixelscale, 0);
+if ndims(img) <= 2
+    fTIF.WriteIMG(img);
+else
+    for k = 1:size(img, 3)
+        fTIF.WriteIMG(img(:, :, k));
+    end
+end
+fTIF.close;
 end
