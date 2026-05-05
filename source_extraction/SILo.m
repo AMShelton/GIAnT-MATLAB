@@ -8,6 +8,13 @@ if nargin>1
 else
     params = setParams('SILo');
 end
+% Fixed values; user/GUI/JSON cannot override these in SILo
+params.poissBasedStdIM = 1;
+params.peakFuncOpt = 2;
+params.actImHeteroscedasticNoise = 0;
+params.peakBufferSize = 0;
+params.dimStdMethod = false;
+params.minBaseline = 0.1;
 if ~nargin
     [trialTablefn, dr] =  uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5' );
 else
