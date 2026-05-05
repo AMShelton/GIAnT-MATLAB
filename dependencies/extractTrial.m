@@ -389,7 +389,7 @@ sinePreds = sinePredictors(num_time_points,params.baselineWindow_samps);
 %Yweighted = Y.*sqrtF; %multiply in the freshness effect
 opts = optimoptions('lsqlin','Display','none');
 for pxIx = size(Y,1):-1:1
-    scale = mean(Y(pxIx,:));
+    scale = max(1e-3, mean(Y(pxIx,:)));
     nValid = size(H,2);
     preds = [ H(pxIx,:)'.*X; sinePreds; squeeze(HPsurround(pxIx,:,:))'; ones(1,num_time_points).*scale;]';
     lb = -10*scale.*ones(1, size(preds,2)); lb(1:nValid) = 0;
