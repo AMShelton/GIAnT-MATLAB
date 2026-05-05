@@ -311,7 +311,7 @@ pixelscale = 4e4; %PIXEL SIZE IN DOTS PER CM
 %save a downsampled aligned recording
 fnDS = [fnstem '_REGISTERED_DOWNSAMPLED-' int2str(dsFac) 'x.tif'];
 if ~params.saveTif
-    fnDS = strrep(fnDS, '.tif', '.h5')
+    fnDS = strrep(fnDS, '.tif', '.h5');
 end
 % fTIF = Fast_BigTiff_Write(fnwrite,pixelscale,0);
 Bsum = zeros([size(viewR') numChannels]);
@@ -386,7 +386,7 @@ end
 
 fnRaw = [fnstem '_REGISTERED_RAW.tif'];
 if ~params.saveTif
-    fnRaw = strrep(fnRaw, '.tif', '.h5')
+    fnRaw = strrep(fnRaw, '.tif', '.h5');
 end
 % fTIF = Fast_BigTiff_Write(fnwrite,pixelscale,0);
 tiffSave = single(zeros([size(viewR, [2 1]) - [sum(nanRows) sum(nanCols)] length(motionC)*numChannels]));
