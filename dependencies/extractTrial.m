@@ -1,4 +1,4 @@
-function varargout = extractTrial(Y_obs,Finv, sources, selPix, params, GT)
+function varargout = extractTrial(Y_obs,Finv, sources, selPix, params, alignData, GT)
 
 Y_obs = double(Y_obs);
 Finv = double(Finv);
@@ -12,7 +12,7 @@ if isempty(params.photonScale) %If not provided, estimate the standard deviation
             [pxSTD(pxIx), mY(pxIx)] = std(Y_obs(pxIx,:,1),1./Finv(pxIx,:),2,'omitmissing');
         end
         selDim = mY(:)<prctile(mY,20);
-        params.photonScale = 4*prctile(pxSTD(selDim),90)
+        params.photonScale = 4*prctile(pxSTD(selDim),90);
     else
         pxSTD = nan(1,size(Y_obs,1));
         mY = nan(1,size(Y_obs,1));
@@ -20,14 +20,14 @@ if isempty(params.photonScale) %If not provided, estimate the standard deviation
             [pxSTD(pxIx), mY(pxIx)] = std(Y_obs(pxIx,:,1),1./Finv(pxIx,:),2,'omitmissing');
         end
         Vb = prctile(pxSTD.^2, 5,'all');
-        selBright = mY(:) > prctile(mY, 40) & mY(:) < prctile(mY, 90);
+        selBright = mY(:) > prctile(mY(:), 40) & mY(:) < prctile(mY(:), 90);
         params.photonScale = prctile((pxSTD(selBright).^2-Vb)./mY(selBright), 10);
     end
 end
 
 %rescale data
 Y_obs = Y_obs./params.photonScale;
-if nargin>5
+if nargin>6
     GT.B = GT.B./params.photonScale;
     GT.S = GT.S./params.photonScale;
     GT.X = GT.X./params.photonScale;
@@ -79,7 +79,7 @@ for problemIx = 1:nProblems %9
     sources_p.C = sources_p.C-colSupport(1)+1;
     selPix_p = selPix_p(rowSupport(1):rowSupport(2), colSupport(1):colSupport(2));
 
-    if nargin>5 %Ground truth supplied
+    if nargin>6 %Ground truth supplied
         GTp.S = GT.S(selSources,:); % spikes,sources x time
         GTp.X = GT.X(selSources,:); % S convolved with kernel
         GTp.B = GT.B(selIdxs(pxList_p{problemIx}),:); % background
@@ -190,7 +190,10 @@ for six = num_sources:-1:1
 end
 
 %initialize B
-params.denoiseWindow_samps = ceil(params.denoiseWindow_s.*params.analyzeHz);
+if ~isfield(params, 'denoiseWindow_samps')
+    params.denoiseWindow_samps = params.denoiseWindow_s .* params.analyzeHz;
+end
+params.denoiseWindow_samps = ceil(params.denoiseWindow_samps);
 %denoised = smoothdata(Y_obs,2,"movmean",,'omitmissing');
 B_est = max(params.minBaseline, splitFreq(Y_obs, params.denoiseWindow_samps, ceil(params.baselineWindow_samps/params.denoiseWindow_samps)));
 
@@ -213,7 +216,7 @@ problemH.lb = -eps*ones(size(Hs_est));
 problemH.ub = eps*ones(size(Hs_est));
 problemH.ub(Hvalid) = inf;
 
-if nargin>5 %ground truth supplied
+if nargin>6 %ground truth supplied
     B_err = nan(1, params.nmfIter);
     H_err = nan(1, params.nmfIter);
     S_err = nan(1, params.nmfIter);
@@ -252,7 +255,7 @@ for outerLoop = 1:params.nmfIter
         S_est_new = S_est;
     end
 
-    if nargin>5 %if ground truth was supplied, make error plots
+    if nargin>6 %if ground truth was supplied, make error plots
         B_err(outerLoop+1) = mean(B_est(:)-GT.B(:)).^2;
         H_err(outerLoop+1) = mean(H_est(:)-GT.H(:)).^2;
         S_err(outerLoop+1) = 1-corr(S_est_new(:),GT.S(:));
@@ -503,7 +506,7 @@ H = tmp(selPix(:),:);
 
 T = H * X + B;               % m-by-n
 E = Z - T;                   % m-by-n
-s = T + lambda;              % m-by-n
+s = T + 1;% lambda;              % m-by-n
 
 % Hessian-vector product (BUT NOT F and G)
 if nargin >= 9 && ~isempty(v)
@@ -516,7 +519,8 @@ if nargin >= 9 && ~isempty(v)
 
         % Perturbation in T
         dT = V * X;                     % m-by-n
-        coef = 2 .* (Z + lambda).^2 ./ ( F .* (s.^3) );   % m-by-n
+        % coef = 2 .* (Z + lambda).^2 ./ ( F .* (s.^3) );   % m-by-n
+        coef = 2 .* (Z + 1).^2 ./ ( F .* (s.^3) );   % m-by-n
         dp = coef .* dT;                % m-by-n
 
         % Map back to H-space
@@ -592,7 +596,7 @@ function [f, gS, HvS] = objfun_S(S, Z, H, B, k, F, lambda, v)
 X = convn(S, k, 'same');   % p-by-n
 T = H * X + B;             % m-by-n
 E = Z - T;                 % m-by-n
-s = T + lambda;            % m-by-n
+s = T + 1; %lambda;            % m-by-n
 
 % Hessian-vector product branch
 if nargin >= 8 && ~isempty(v)
@@ -606,7 +610,8 @@ if nargin >= 8 && ~isempty(v)
         dT = H * dX;                  % m-by-n
 
         % Coefficient: coef = 2*(Z + lambda).^2 ./ (F .* s.^3)
-        coef = 2 .* (Z + lambda).^2 ./ ( F .* (s.^3) );  % m-by-n
+        % coef = 2 .* (Z + lambda).^2 ./ ( F .* (s.^3) );  % m-by-n
+        coef = 2 .* (Z + 1).^2 ./ ( F .* (s.^3) );  % m-by-n
 
         % dp = coef .* dT
         dp = coef .* dT;              % m-by-n
@@ -623,7 +628,7 @@ if nargin >= 8 && ~isempty(v)
 else
     % Objective value
     denom = F .* s;            % m-by-n
-    f = sum( (E.^2) ./ denom, 'all' );
+    f = sum( (E.^2) ./ denom, 'all' ) + lambda .* sum(S(:));
 
     % Gradient wrt T (elementwise)
     % p_elem = dL/dT = - (2 E s + E.^2) ./ (F .* s.^2)
@@ -633,7 +638,7 @@ else
     gX = H.' * p_elem;        % p-by-n
 
     % Gradient wrt S: adjoint of convn => convn(gX, flip(k), 'same')
-    gS = convn(gX, flip(k), 'same');  % p-by-n
+    gS = convn(gX, flip(k), 'same') + lambda;  % p-by-n
 
     HvS = [];
 end
@@ -660,8 +665,8 @@ function HvS = hessmult_S_wrapper(S, Z, H, B, k, F, lambda, v)
 end
 
 function Xfloor = computeFloor(X, denoiseWindow, baseline)
- ord = ceil(0.1*baseline); % a percentile filter to remove overfit small spikes during iterations
- Xmed = medfilt2(X, [1 2*ceil(denoiseWindow)+1],"symmetric");
- Xmed_min = ordfilt2(Xmed, ord, ones(1,ceil(baseline)), 'symmetric');
- Xfloor = smoothdata(Xmed_min, 2,"movmean",ceil(baseline),"omitmissing");
+ord = ceil(0.1*baseline); % a percentile filter to remove overfit small spikes during iterations
+Xmed = medfilt2(X, [1 2*ceil(denoiseWindow)+1],"symmetric");
+Xmed_min = ordfilt2(Xmed, ord, ones(1,ceil(baseline)), 'symmetric');
+Xfloor = smoothdata(Xmed_min, 2,"movmean",ceil(baseline),"omitmissing");
 end
