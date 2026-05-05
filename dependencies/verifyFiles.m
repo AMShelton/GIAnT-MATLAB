@@ -60,7 +60,7 @@ for trialIx = nTrials:-1:1
             %Bergamo: raw data for extraction is the registered-raw file
             %produced by StripRegistration and stored in motion_correction
             rawFn = trialTable.motion_correction.fn_raw{DMDix,trialIx};
-            if ~exist([datadr filesep rawFn], 'file')
+            if ~exist([mocodr filesep rawFn], 'file')
                 disp(['Missing raw data file:' rawFn])
                 keepTrials(DMDix, trialIx) = false;
             end
