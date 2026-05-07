@@ -127,7 +127,7 @@ The final step of the pipeline, source extraction (Source Identification by Acti
     └ 📂 sources
        ├ 📂 spatial
        |  ├ 📄 profiles (sources x fastz x rows x cols)
-       |  └ 📄 coords (sources x 2 [z_loc, x_loc, y_loc])*
+       |  └ 📄 coords (sources x 3 [z_loc, x_loc, y_loc])
        └ 📂 temporal
           ├ 📄 dF (total frames x sources)
           ├ 📄 dFF (total frames x sources)
@@ -214,3 +214,40 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 | `DMD{n}/roi_###/semi_axes` | 1 x 2 | double | Ellipse semi-axes lengths (ellipse only) |
 | `DMD{n}/roi_###/rotation_angle` | 1 x 1 | double | Ellipse rotation angle in degrees (ellipse only) |
 | `DMD{n}/roi_###/radius` | 1 x 1 | double | Circle radius (circle only) |
+
+### `experiment_summary.h5`
+
+Field reference for the layout in the schematic tree above (per-DMD HDF5 groups). `SILo.m` currently writes `ExperimentSummary-*.mat` in `source_extraction/`; an HDF5 export is expected to mirror these paths. Dimensions use one `total frames` axis for all trials from that DMD stitched in time.
+
+| Field | Size | Data type | Description |
+| --- | --- | --- | --- |
+| `DMD{n}` | — | group | One group per DMD |
+| `DMD{n}/frame_info` | — | group | Trial and frame bookkeeping for stitched time series |
+| `DMD{n}/frame_info/offlineXshifts` | total frames x 1 | numeric | Offline registration X shift per frame |
+| `DMD{n}/frame_info/offlineYshifts` | total frames x 1 | numeric | Offline registration Y shift per frame |
+| `DMD{n}/frame_info/offlineZshifts` | total frames x 1 | numeric | Offline registration Z shift per frame |
+| `DMD{n}/frame_info/onlineXshifts` | total frames x 1 | numeric | (SLAP2 only) online X shift per frame |
+| `DMD{n}/frame_info/onlineYshifts` | total frames x 1 | numeric | (SLAP2 only) online Y shift per frame |
+| `DMD{n}/frame_info/onlineZshifts` | total frames x 1 | numeric | (SLAP2 only) online Z shift per frame |
+| `DMD{n}/frame_info/trial_num_frames` | trials x 1 | integer | Number of frames contributed by each analysis trial |
+| `DMD{n}/frame_info/frame_line_idxs` | total frames x 1 | integer | Raw line (SLAP2 only) or frame (other microscopes) index for each frame in the stitched series |
+| `DMD{n}/frame_info/discard_frames` | total frames x 1 | bool or uint8 | Frame is excluded from analysis (e.g., motion censoring) |
+| `DMD{n}/visualizations` | — | group | Static images for QC and publication |
+| `DMD{n}/visualizations/mean_im` | channels x fastz x rows x cols | numeric | Mean registered image per channel / Z slice |
+| `DMD{n}/visualizations/ref_stack` | ref_stack_channels x depths x rows x cols | numeric | (SLAP2 only) Reference stack used for alignment / display |
+| `DMD{n}/visualizations/ref_stack/channels` | ref_stack_channels x 1 | numeric | (SLAP2 only) Channel index or ID for each plane in `ref_stack` |
+| `DMD{n}/visualizations/act_im` | fastz x rows x cols | numeric | Activity / localization summary image (single contrast) |
+| `DMD{n}/global` | — | group | Whole-field signals |
+| `DMD{n}/global/F` | total frames x 1 | numeric | Fluorescence trace summed or averaged over the field |
+| `DMD{n}/user_rois` | — | group | Traces from manually drawn ROIs (when present) |
+| `DMD{n}/user_rois/mask` | fastz x rows x cols x rois | uint8 or bool | Stacked binary masks for each user ROI |
+| `DMD{n}/user_rois/Fsvd` | total frames x rois | numeric | ROI signals after SVD / projection step (if used) |
+| `DMD{n}/user_rois/F` | total frames x rois | numeric | Raw or baseline-corrected ROI fluorescence |
+| `DMD{n}/sources` | — | group | SILo-detected sources |
+| `DMD{n}/sources/spatial` | — | group | Spatial fingerprints and locations |
+| `DMD{n}/sources/spatial/profiles` | sources x fastz x rows x cols | numeric | Spatial component / pixel weights per source |
+| `DMD{n}/sources/spatial/coords` | sources x 3 | numeric | Source centers per row: `[z_loc, x_loc, y_loc]` convention |
+| `DMD{n}/sources/temporal` | — | group | Frame-by-frame source activity |
+| `DMD{n}/sources/temporal/dF` | total frames x sources | numeric | Delta F (absolute or scaled) |
+| `DMD{n}/sources/temporal/dFF` | total frames x sources | numeric | Delta F / F0 (normalized) |
+| `DMD{n}/sources/temporal/F0` | total frames x sources | numeric | Baseline estimate used for normalization |
