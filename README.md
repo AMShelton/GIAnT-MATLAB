@@ -42,6 +42,7 @@ Each experiment processed with GIAnT first gets a trial_table.h5 file that summa
  |  ├ 📄 first_line_original
  |  └ 📄 align_params
  └ 📂 source_extraction
+    ├ 📄 analysis_params
     └ 📄 fn_raw
 ```
 
@@ -163,6 +164,7 @@ The final step of the pipeline, source extraction (Source Identification by Acti
 | `motion_correction/first_line_original` | nDMDs x total trials | integer | Original `slap2_info/first_line` before reVolt adjustment |
 | `motion_correction/align_params` | — | struct | Alignment parameters used |
 | `source_extraction` | — | group | Written by source extraction stage |
+| `source_extraction/analysis_params` | — | struct | Analysis parameters used |
 | `source_extraction/fn_raw` | nDMDs x total trials | string | Raw file source extraction reads from per trial |
 
 ### `<trial_stem>_ALIGNMENTDATA.h5`

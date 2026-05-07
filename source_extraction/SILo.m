@@ -323,6 +323,9 @@ end
 
 params.endTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
+trialTable.source_extraction.analysis_params = params;
+saveStructToH5(trialTable, [dr filesep trialTablefn]);
+
 %prepare file for saving
 exptSummary.params = params;
 exptSummary.trialTable = trialTable;
