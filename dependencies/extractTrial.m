@@ -326,6 +326,36 @@ for outerLoop = 1:params.nmfIter
     S_est = S_est_new;
 end
 
+%debiasing L1 step
+problemS.ub(S_est_new == 0) = eps;
+opts.MaxIterations = 10*params.nmfIter;
+
+%SOLVE FOR S
+opts.TypicalX = typicalX;
+% Objective function handle (returns [f,g, Hinfo])
+objS = @(x) objfun_S_wrapper(x, Y_obs, H_est, B_est, params.k, Finv, 0);
+
+% Hessian multiply for fmincon signature (x,y,flag)
+opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_wrapper(hinfo, Y_obs, H_est, B_est, params.k, Finv, 0, v); %hessmult_S_wrapper takes (Svec, Z, H, B, k, F, lambda, v)
+
+% Call fmincon
+[S_est_new, lossS] = fmincon(objS, S_est_new, [], [], [], [], problemS.lb, problemS.ub, [], opts);
+
+%update X
+X_est_new = convn(S_est_new, params.k, 'same');
+
+%estimate noise,SNR
+resid = Y_obs - (B_est + H_est*X_est_new);
+
+%compute weighted rms error estimate at each pixel
+residWeights = 1./Finv;
+residWeights(resid>=0) = 0;
+residVar = sum(resid.^2.*residWeights,2)./sum(residWeights,2);
+W = diag(1./residVar);
+covX = inv(H_est' * W * H_est); %uncertainty estimate for X
+Xnoise = sqrt(diag(covX)./params.tau_full);
+Xsnr = std(X_est_new, 0,2)./Xnoise;
+
 %fit least squares
 dFls = H_est\(Y_obs-B_est);
 
