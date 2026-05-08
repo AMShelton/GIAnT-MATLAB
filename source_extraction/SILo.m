@@ -29,11 +29,6 @@ else
     end
 end
 
-if params.makeJSON
-    pythonenv_dir = uigetdir(getenv("USERPROFILE"),'Select Python Environment Directory');
-    disp(['python env: ' pythonenv_dir])
-end
-
 params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
 %confirm that all files exist (also populates source_extraction.fn_raw)
