@@ -327,7 +327,7 @@ for outerLoop = 1:params.nmfIter
 end
 
 %debiasing L1 step
-problemS.ub(S_est_new == 0) = eps;
+problemS.ub(S_est_new < 1e-1) = eps;
 opts.MaxIterations = 10*params.nmfIter;
 
 %SOLVE FOR S
