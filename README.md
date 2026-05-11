@@ -131,7 +131,7 @@ The final step of the pipeline, source extraction (Source Identification by Acti
        |  ├ 📄 profiles (sources x fastz x rows x cols)
        |  └ 📄 coords (sources x 3 [z_loc, x_loc, y_loc])
        └ 📂 temporal
-          ├ 📄 dF (total frames x sources)
+          ├ 📄 dF_ls (total frames x sources)
           ├ 📄 dF_denoised (total frames x sources)
           ├ 📄 events (total frames x sources)
           ├ 📄 F0 (total frames x sources)
@@ -254,7 +254,7 @@ Field reference for the layout in the schematic tree above (per-DMD HDF5 groups)
 | `DMD{n}/sources/spatial/profiles` | sources x fastz x rows x cols | numeric | Spatial component / pixel weights per source |
 | `DMD{n}/sources/spatial/coords` | sources x 3 | numeric | Source centers per row: `[z_loc, x_loc, y_loc]` convention |
 | `DMD{n}/sources/temporal` | — | group | Frame-by-frame source activity |
-| `DMD{n}/sources/temporal/dF` | total frames x sources | numeric | Delta F (absolute or scaled) |
+| `DMD{n}/sources/temporal/dF_ls` | total frames x sources | numeric | least squaresDelta F (absolute or scaled) |
 | `DMD{n}/sources/temporal/dF_denoised` | total frames x sources | numeric | Denoised Delta F |
 | `DMD{n}/sources/temporal/events` | total frames x sources | numeric | deconvolved source events |
 | `DMD{n}/sources/temporal/F0` | total frames x sources | numeric | Baseline estimate used for normalization |
