@@ -137,7 +137,7 @@ The final step of the pipeline, source extraction (Source Identification by Acti
           ├ 📄 dF_denoised (sources x channels x total frames)
           ├ 📄 events (sources x channels x total frames)
           ├ 📄 F0 (sources x channels x total frames)
-          └ 📄 SNR (sources x channels x total frames)
+          └ 📄 SNR (sources x 1)
 ```
 
 
@@ -262,4 +262,4 @@ Field reference for the layout in the schematic tree above (per-DMD HDF5 groups)
 | `DMD{n}/sources/temporal/dF_denoised` | sources x channels x total frames | numeric | Denoised ΔF |
 | `DMD{n}/sources/temporal/events` | sources x channels x total frames | numeric | Deconvolved source events |
 | `DMD{n}/sources/temporal/F0` | sources x channels x total frames | numeric | Baseline estimate used for normalization |
-| `DMD{n}/sources/temporal/SNR` | sources x channels x total frames | numeric | Signal-to-noise ratio metric |
+| `DMD{n}/sources/temporal/SNR` | sources x 1 | numeric | Signal-to-noise ratio metric |
