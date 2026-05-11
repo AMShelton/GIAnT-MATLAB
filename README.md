@@ -122,22 +122,22 @@ The final step of the pipeline, source extraction (Source Identification by Acti
     |  |  └ 📄 channels (ref_stack_channels x 1)
     |  └ 📄 act_im (fastz x rows x cols)
     ├ 📂 global
-    |  └ 📄 F (total frames x channels)
+    |  └ 📄 F (channels x total frames)
     ├ 📂 user_rois
     |  ├ 📄 names (rois x 1 string)
-    |  ├ 📄 mask (fastz x rows x cols x rois)
-    |  ├ 📄 Fsvd (total frames x rois x channels)
-    |  └ 📄 F (total frames x rois x channels)
+    |  ├ 📄 mask (rois x fastz x rows x cols)
+    |  ├ 📄 Fsvd (rois x channels x total frames)
+    |  └ 📄 F (rois x channels x total frames)
     └ 📂 sources
        ├ 📂 spatial
        |  ├ 📄 profiles (sources x fastz x rows x cols)
        |  └ 📄 coords (sources x 3 [z_loc, x_loc, y_loc])
        └ 📂 temporal
-          ├ 📄 dF_ls (total frames x sources x channels)
-          ├ 📄 dF_denoised (total frames x sources x channels)
-          ├ 📄 events (total frames x sources x channels)
-          ├ 📄 F0 (total frames x sources x channels)
-          └ 📄 SNR (total frames x sources x channels)
+          ├ 📄 dF_ls (sources x channels x total frames)
+          ├ 📄 dF_denoised (sources x channels x total frames)
+          ├ 📄 events (sources x channels x total frames)
+          ├ 📄 F0 (sources x channels x total frames)
+          └ 📄 SNR (sources x channels x total frames)
 ```
 
 
@@ -247,19 +247,19 @@ Field reference for the layout in the schematic tree above (per-DMD HDF5 groups)
 | `DMD{n}/visualizations/ref_stack/channels` | ref_stack_channels x 1 | numeric | (SLAP2 only) Channel index or ID for each plane in `ref_stack` |
 | `DMD{n}/visualizations/act_im` | fastz x rows x cols | numeric | Activity / localization summary image (single contrast) |
 | `DMD{n}/global` | — | group | Whole-field signals |
-| `DMD{n}/global/F` | total frames x channels | numeric | Fluorescence traces over the field (one column per channel) |
+| `DMD{n}/global/F` | channels x total frames | numeric | Fluorescence traces over the field (one column per channel) |
 | `DMD{n}/user_rois` | — | group | Traces from manually drawn ROIs (when present) |
 | `DMD{n}/user_rois/names` | rois x 1 | string | User-defined ROI names |
-| `DMD{n}/user_rois/mask` | fastz x rows x cols x rois | uint8 or bool | Stacked binary masks for each user ROI |
-| `DMD{n}/user_rois/Fsvd` | total frames x rois x channels | numeric | ROI signals after SVD / projection step (if used) |
-| `DMD{n}/user_rois/F` | total frames x rois x channels | numeric | Raw or baseline-corrected ROI fluorescence |
+| `DMD{n}/user_rois/mask` | rois x fastz x rows x cols | uint8 or bool | Stacked binary masks for each user ROI |
+| `DMD{n}/user_rois/Fsvd` | rois x channels x total frames | numeric | ROI signals after SVD / projection step (if used) |
+| `DMD{n}/user_rois/F` | rois x channels x total frames | numeric | Raw or baseline-corrected ROI fluorescence |
 | `DMD{n}/sources` | — | group | SILo-detected sources |
 | `DMD{n}/sources/spatial` | — | group | Spatial fingerprints and locations |
 | `DMD{n}/sources/spatial/profiles` | sources x fastz x rows x cols | numeric | Spatial component / pixel weights per source |
 | `DMD{n}/sources/spatial/coords` | sources x 3 | numeric | Source centers per row: `[z_loc, x_loc, y_loc]` |
 | `DMD{n}/sources/temporal` | — | group | Frame-by-frame source activity |
-| `DMD{n}/sources/temporal/dF_ls` | total frames x sources x channels | numeric | Least-squares ΔF (absolute or scaled) |
-| `DMD{n}/sources/temporal/dF_denoised` | total frames x sources x channels | numeric | Denoised ΔF |
-| `DMD{n}/sources/temporal/events` | total frames x sources x channels | numeric | Deconvolved source events |
-| `DMD{n}/sources/temporal/F0` | total frames x sources x channels | numeric | Baseline estimate used for normalization |
-| `DMD{n}/sources/temporal/SNR` | total frames x sources x channels | numeric | Signal-to-noise ratio metric |
+| `DMD{n}/sources/temporal/dF_ls` | sources x channels x total frames | numeric | Least-squares ΔF (absolute or scaled) |
+| `DMD{n}/sources/temporal/dF_denoised` | sources x channels x total frames | numeric | Denoised ΔF |
+| `DMD{n}/sources/temporal/events` | sources x channels x total frames | numeric | Deconvolved source events |
+| `DMD{n}/sources/temporal/F0` | sources x channels x total frames | numeric | Baseline estimate used for normalization |
+| `DMD{n}/sources/temporal/SNR` | sources x channels x total frames | numeric | Signal-to-noise ratio metric |
