@@ -58,7 +58,7 @@ fnsave = [savedr filesep 'ExperimentSummary-' datestr(now, 'YYmmDD-HHMMSS') '.ma
 
 %call up a GUI for the user to define Soma ROI and regions to exclude
 if params.drawUserRois
-    fnAnnH5 = [savedr filesep 'annotations.h5'];
+    fnAnnH5 = fullfile(trialTable.savedr, 'annotations', 'annotations.h5');
     if exist(fnAnnH5, 'file')
         ROIs = loadAnnotationsH5(fnAnnH5);
     else
