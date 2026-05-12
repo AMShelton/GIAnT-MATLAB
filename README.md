@@ -52,6 +52,7 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
 ```
 📦 <trial_stem>_ALIGNMENTDATA.h5
  ├ 📄 numChannels
+ ├ 📄 meanIM
  ├ 📄 frametime
  ├ 📄 alignHz
  ├ 📄 motionDSc
@@ -174,11 +175,12 @@ The final step of the pipeline, source extraction (Source Identification by Acti
 
 ### `<trial_stem>_ALIGNMENTDATA.h5`
 
-Top-level fields are shared across microscopes; `motionC`/`motionR`/`registrationFailed` are written by `StripRegistration.m` (Bergamo) and `DSframes`/`registrationFailed` by `MultiRoiRegistration.m` (SLAP2). The `slap2` group is only populated for SLAP2 experiments.
+Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripRegistration.m` (Bergamo); `DSframes`/`registrationFailed` by `MultiRoiRegistration.m` (SLAP2). The `slap2` group is only populated for SLAP2 experiments.
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
 | `numChannels` | 1 x 1 | integer | Number of channels in the recording |
+| `meanIM` | channels x rows x cols | single | Per-channel mean of motion-corrected frames |
 | `frametime` | 1 x 1 | numeric | Seconds per downsampled frame |
 | `alignHz` | 1 x 1 | numeric | Frame rate (Hz) at which alignment was performed |
 | `motionDSc` | 1 x nDSframes | numeric | Inferred column shift per downsampled frame |

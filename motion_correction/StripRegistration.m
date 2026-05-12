@@ -339,6 +339,13 @@ nanCols = mean(mean(isnan(tiffSave),3),1) == 1;
 tiffSave(nanRows,:,:) = [];
 tiffSave(:,nanCols,:) = [];
 
+[h, w, nt] = size(tiffSave);
+if nt ~= nDSframes * numChannels
+    error('StripRegistration:stackSize', 'Expected %d pages (%d ch x %d frames), got %d.', nDSframes * numChannels, numChannels, nDSframes, nt);
+end
+% Per-channel mean over downsampled aligned frames, numChannels x H x W (same layout as saved stack after channel interleave reshape to H,W,C,T).
+meanIM = permute(single(mean(reshape(tiffSave, h, w, numChannels, nDSframes), 4, 'omitnan')), [3 1 2]);
+
 if params.saveTif
     writeStackBigTiff(tiffSave, [outDr filesep fnDS], pixelscale);
 else
@@ -423,6 +430,7 @@ fnAdata = [fnstem '_ALIGNMENTDATA.h5'];
 %build the on-disk alignment struct, following the layout documented in README.md
 toSave = struct();
 toSave.numChannels = aData.numChannels;
+toSave.meanIM = meanIM;
 toSave.frametime = aData.frametime;
 toSave.alignHz = aData.alignHz;
 toSave.motionC = aData.motionC;

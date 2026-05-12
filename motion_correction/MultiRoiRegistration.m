@@ -269,6 +269,10 @@ fTIF = Fast_BigTiff_Write([mocosavedr filesep fnwrite],pixelscale,0);
 V1 = nan(size(viewC,1),size(viewC,2),nDSframes,'single'); %variance factor; multiply the image value by this to get variance
 %T = T0(aData.maxshift + (1:sz(1)), aData.maxshift+(1:sz(2)));
 disp('Registering:');
+% Per-channel mean over time (aligned frames), size numChannels x H x W
+% (same as mean(reshape(IM,H,W,C,[]), 4, 'omitnan') after deinterleaving TIFF pages).
+sumMeanIM = zeros(numChannels, sz(1), sz(2), 'single');
+nMeanIM = zeros(numChannels, sz(1), sz(2), 'single');
 try
     for DSframeIx = 1:nDSframes
         [M1, freshness] = getImageWrapper(S2data, 1, DSframes(DSframeIx), ceil(dt), 1, spTypeFlag); %moving image Ch1
@@ -332,6 +336,13 @@ try
             A = A1;
         end
 
+        sumMeanIM(1,:,:) = sumMeanIM(1,:,:) + shiftdim(single(A1), -1);
+        nMeanIM(1,:,:) = nMeanIM(1,:,:) + shiftdim(single(~isnan(A1)), -1);
+        if numChannels==2
+            sumMeanIM(2,:,:) = sumMeanIM(2,:,:) + shiftdim(single(A2), -1);
+            nMeanIM(2,:,:) = nMeanIM(2,:,:) + shiftdim(single(~isnan(A2)), -1);
+        end
+
         %downsample in space
         dsTmp = A;
         for dsIx = 1:dsTimes
@@ -363,6 +374,9 @@ catch ME
 end
 
 fTIF.close;
+
+meanIM = sumMeanIM ./ max(nMeanIM, single(1));
+meanIM(nMeanIM < single(1)) = nan;
 
 %Compute alignment error
 offset = 10;
@@ -426,6 +440,7 @@ registrationFailed = aData.registrationFailed;
 %build the on-disk alignment struct, following the layout documented in README.md
 toSave = struct();
 toSave.numChannels = aData.numChannels;
+toSave.meanIM = meanIM;
 toSave.frametime = aData.frametime;
 toSave.alignHz = aData.alignHz;
 toSave.DSframes = aData.DSframes;
