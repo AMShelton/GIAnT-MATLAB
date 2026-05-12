@@ -63,11 +63,17 @@ if params.drawUserRois
         ROIs = loadAnnotationsH5(fnAnnH5);
     else
         for DMDix = 1:nDMDs
-            %load image data
+            %load image data (prefer meanIM from alignment H5 of same trial; matches mean(IM,[3 4]) after H,W,C,T reshape)
             firstValidTrial = find(keepTrials(DMDix,:),1,"first");
             [~, fn, ext] = fileparts(trialTable.motion_correction.fn_reg_ds{DMDix,firstValidTrial});
-            [IM, ~] = ScanImageTiffWrapper(fullfile(mocodr, [fn ext]));
-            IM = squeeze(mean(IM,[3 4], 'omitnan'));
+            adataFn = trialTable.motion_correction.fn_adata{DMDix, firstValidTrial};
+            aDataAnnot = loadStructFromH5(fullfile(mocodr, adataFn));
+            if isfield(aDataAnnot, 'meanIM') && ~isempty(aDataAnnot.meanIM)
+                IM = squeeze(mean(aDataAnnot.meanIM, 1, 'omitnan')); % numChannels x H x W -> H x W
+            else
+                [IMtif, ~] = ScanImageTiffWrapper(fullfile(mocodr, [fn ext]));
+                IM = squeeze(mean(IMtif, [3 4], 'omitnan'));
+            end
             hROIs(DMDix) = drawROIs(sqrt(max(0,IM)), savedr, fn);
             ROIs(DMDix).dr = mocodr;
             ROIs(DMDix).fn = fn;
