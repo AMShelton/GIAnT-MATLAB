@@ -337,11 +337,13 @@ try
             A = A1;
         end
 
-        sumMeanIM(1,:,:) = sumMeanIM(1,:,:) + reshape(single(A1), [1, szOut(1), szOut(2)]);
-        nMeanIM(1,:,:) = nMeanIM(1,:,:) + reshape(single(~isnan(A1)), [1, szOut(1), szOut(2)]);
+        a1 = single(A1); m1 = ~isnan(a1); a1(~m1) = 0;
+        sumMeanIM(1,:,:) = sumMeanIM(1,:,:) + reshape(a1, [1, szOut(1), szOut(2)]);
+        nMeanIM(1,:,:) = nMeanIM(1,:,:) + reshape(single(m1), [1, szOut(1), szOut(2)]);
         if numChannels==2
-            sumMeanIM(2,:,:) = sumMeanIM(2,:,:) + reshape(single(A2), [1, szOut(1), szOut(2)]);
-            nMeanIM(2,:,:) = nMeanIM(2,:,:) + reshape(single(~isnan(A2)), [1, szOut(1), szOut(2)]);
+            a2 = single(A2); m2 = ~isnan(a2); a2(~m2) = 0;
+            sumMeanIM(2,:,:) = sumMeanIM(2,:,:) + reshape(a2, [1, szOut(1), szOut(2)]);
+            nMeanIM(2,:,:) = nMeanIM(2,:,:) + reshape(single(m2), [1, szOut(1), szOut(2)]);
         end
 
         %downsample in space
