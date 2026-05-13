@@ -2,7 +2,7 @@
 Glutamate Imaging Analysis Toolbox, MATLAB implementation
 
 
-<img width="300" height="611.25" alt="GIAnT_schematic" src="GIAnT_schematic_horizontal.png" />
+<img width="1594" height="300" alt="GIAnT_schematic" src="GIAnT_schematic_horizontal.png" />
 
 ## Epoch and Analysis Trial
 For each experiment we run through the pipeline, we break down the data into epochs and analysis trials.
