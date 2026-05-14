@@ -54,8 +54,14 @@ end
 nTrials= numel(trialTable.filename);
 fnRegDS = cell(1, nTrials); fnRaw = cell(1, nTrials); fnAdata = cell(1, nTrials);
 regFail = false(1, nTrials);
-parfor f_ix = 1:nTrials
-    [fnRegDS{f_ix}, fnRaw{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignAsync(dataDr, mocodr, trialTable, params, f_ix);
+if params.nWorkers>1
+    parfor f_ix = 1:nTrials
+        [fnRegDS{f_ix}, fnRaw{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignAsync(dataDr, mocodr, trialTable, params, f_ix);
+    end
+else
+    for f_ix = 1:nTrials
+        [fnRegDS{f_ix}, fnRaw{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignAsync(dataDr, mocodr, trialTable, params, f_ix);
+    end
 end
 
 if ~isfield(trialTable, 'motion_correction') || isempty(trialTable.motion_correction)
