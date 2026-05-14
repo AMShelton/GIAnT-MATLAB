@@ -74,7 +74,7 @@ trialTable.motion_correction.registration_failed = regFail;
 trialTable.motion_correction.align_params = params;
 saveStructToH5(trialTable, fullPathToTrialTable);
 
-disp('done bergamoRegistration.')
+disp('done StripRegistration.')
 
 end
 
