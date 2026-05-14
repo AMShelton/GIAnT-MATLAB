@@ -6,6 +6,7 @@ function params = StripRegistration(fullPathToTrialTable, paramsIn)
 
 if ~nargin || isempty(fullPathToTrialTable)
     [fn, trialtabledr] = uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5');
+    fullPathToTrialTable = fullfile(trialtabledr,fn);
     if isequal(fn, 0)
         error('StripRegistration:NoTrialTable', 'A trial_table.h5 file is required. Build one with buildTrialTable first.');
     end
