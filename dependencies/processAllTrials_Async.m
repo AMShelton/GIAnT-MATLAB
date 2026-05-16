@@ -172,8 +172,6 @@ switch params.microscope
         end
 
     case 'bergamo'
-        baseline = prctile(reshape(meanIM, [], numChannels), 10,1);
-
         if endsWith(fn, '.h5')
             desc = h5info([dr filesep fn]);
             IM = h5read([dr filesep fn], ['/', desc.Datasets.Name]);
@@ -185,6 +183,7 @@ switch params.microscope
         %rearrange into correct dimensions
         selPx2D = any(selPix,3);
         IM = reshape(IM, size(IM,1), size(IM,2), numChannels, []);
+        baseline = prctile(reshape(median(IM,4), [], numChannels), 5,1);
         IM = IM-reshape(baseline, [1 1 numChannels 1]); %subtract baseline
         nPx = size(IM,1)*size(IM,2);
         nFrames = size(IM,4);
