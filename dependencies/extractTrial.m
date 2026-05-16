@@ -446,11 +446,11 @@ SMa = smoothdata(Ma,2, 'lowess',LPfactor, 'omitmissing');
 resid = Ma-SMa;
 lowVals = resid<=ordfilt2(resid, max(2,ceil(0.15*LPfactor)), ones([1 LPfactor]));
 Ma(~lowVals) = nan;
-SMa = smoothdata(Ma,2, 'lowess',LPfactor, 'omitmissing');
+SMa = smoothdata(Ma,2, 'movmean',LPfactor, 'omitmissing');
 for iter = 1:3
     selNans = isnan(SMa);
     if any(selNans(:))
-        tmp = smoothdata(SMa,2, 'lowess',LPfactor, 'omitmissing');
+        tmp = smoothdata(SMa,2, 'movmean',LPfactor, 'omitmissing');
         SMa(selNans) = tmp(selNans); 
     else
         break
