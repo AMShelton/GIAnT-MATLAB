@@ -333,10 +333,10 @@ opts.MaxIterations = 10*params.nmfIter;
 %SOLVE FOR S
 opts.TypicalX = typicalX;
 % Objective function handle (returns [f,g, Hinfo])
-objS = @(x) objfun_S_wrapper(x, Y_obs, H_est, B_est, params.k, Finv, 0);
+objS = @(x) objfun_S_wrapper(x, Y_obs, H_est, B_est, params.k, Finv, params.lambda*params.phi);
 
 % Hessian multiply for fmincon signature (x,y,flag)
-opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_wrapper(hinfo, Y_obs, H_est, B_est, params.k, Finv, 0, v); %hessmult_S_wrapper takes (Svec, Z, H, B, k, F, lambda, v)
+opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_wrapper(hinfo, Y_obs, H_est, B_est, params.k, Finv, params.lambda*params.phi, v); %hessmult_S_wrapper takes (Svec, Z, H, B, k, F, lambda, v)
 
 % Call fmincon
 [S_est_new, lossS] = fmincon(objS, S_est_new, [], [], [], [], problemS.lb, problemS.ub, [], opts);
