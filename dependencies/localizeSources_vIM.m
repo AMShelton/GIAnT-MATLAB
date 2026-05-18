@@ -45,7 +45,7 @@ if params.microscope == "SLAP2" || params.poissBasedStdIM
     %smooth the data at a timescale on which fluctuations look more
     %gaussian, for computing variances
     IMs = smoothdata(IMf./vIM, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
-    vIM = smoothdata(vIM, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
+    vIM = 1./smoothdata(1./vIM, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
     IMs = IMs.*vIM;
 
     %baseline estimate
@@ -73,7 +73,7 @@ else
     IMf = IMf - IMb;   %- smoothdata(IMf, 3, 'movmedian', baselineWindow, 'omitnan');
 
     % MAD-based robust standard deviation estimate
-    stdIM = movmad(IMfden - IMb,baselineWindow,3,'omitmissing') ./ 0.6741891400433162.*ceil(denoiseWindow/2);
+    stdIM = movmad(IMfden - IMb,baselineWindow,3,'omitmissing') ./ 0.6741891400433162.*sqrt(ceil(denoiseWindow/2));
 end
 %divide by uncertainty to get a Z-score
 IMf = IMf./stdIM;
