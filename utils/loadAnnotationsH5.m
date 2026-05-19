@@ -9,37 +9,40 @@ if ~exist(filename, 'file')
 end
 
 info = h5info(filename);
-dmdNames = {};
+pathNames = {};
 for gix = 1:numel(info.Groups)
     parts = strsplit(info.Groups(gix).Name, '/');
     grpName = parts{end};
-    if startsWith(grpName, 'DMD')
-        dmdNames{end+1} = grpName; %#ok<AGROW>
+    if startsWith(grpName, 'Path') || startsWith(grpName, 'DMD')
+        pathNames{end+1} = grpName; %#ok<AGROW>
     end
 end
 
-if isempty(dmdNames)
+if isempty(pathNames)
     ROIs = struct([]);
     return
 end
 
-dmdNums = nan(size(dmdNames));
-for ix = 1:numel(dmdNames)
-    dmdNums(ix) = sscanf(dmdNames{ix}, 'DMD%d');
+pathNums = nan(size(pathNames));
+for ix = 1:numel(pathNames)
+    pathNums(ix) = sscanf(pathNames{ix}, 'Path%d');
+    if isempty(pathNums(ix))
+        pathNums(ix) = sscanf(pathNames{ix}, 'DMD%d');
+    end
 end
-[~, order] = sort(dmdNums);
-dmdNames = dmdNames(order);
+[~, order] = sort(pathNums);
+pathNames = pathNames(order);
 
-ROIs = repmat(struct('dr', '', 'fn', '', 'roiData', {{}}), 1, numel(dmdNames));
-for DMDix = 1:numel(dmdNames)
-    dmdPath = ['/' dmdNames{DMDix}];
-    ROIs(DMDix).dr = readStringOrDefault(filename, [dmdPath '/dr'], '');
-    ROIs(DMDix).fn = readStringOrDefault(filename, [dmdPath '/fn'], '');
+ROIs = repmat(struct('dr', '', 'fn', '', 'roiData', {{}}), 1, numel(pathNames));
+for DMDix = 1:numel(pathNames)
+    pathRoot = ['/' pathNames{DMDix}];
+    ROIs(DMDix).dr = readStringOrDefault(filename, [pathRoot '/dr'], '');
+    ROIs(DMDix).fn = readStringOrDefault(filename, [pathRoot '/fn'], '');
 
-    nRois = double(readNumericOrDefault(filename, [dmdPath '/n_rois'], uint32(0)));
+    nRois = double(readNumericOrDefault(filename, [pathRoot '/n_rois'], uint32(0)));
     roiData = cell(1, nRois);
     for rix = 1:nRois
-        roiPath = sprintf('%s/roi_%03d', dmdPath, rix);
+        roiPath = sprintf('%s/roi_%03d', pathRoot, rix);
 
         typeRaw = readStringOrDefault(filename, [roiPath '/type'], '');
         S = struct();

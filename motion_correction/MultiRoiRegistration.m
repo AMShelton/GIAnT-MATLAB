@@ -227,7 +227,12 @@ if params.refStackTemplate
     if params.isReVolt
         error('refStack alignment not implemented for reVolt imaging')
     end
-    dmdRef = trialTable.slap2_info.ref_stack.(['DMD' int2str(DMD_ix)]);
+    pathKey = ['Path' int2str(DMD_ix)];
+    if isfield(trialTable.slap2_info.ref_stack, pathKey)
+        dmdRef = trialTable.slap2_info.ref_stack.(pathKey);
+    else
+        dmdRef = trialTable.slap2_info.ref_stack.(['DMD' int2str(DMD_ix)]);
+    end
     fullTemplate = nan(size(dmdRef.IM,[2 1]));
     fullTemplate((min(trimRows)-aData.maxshift):(max(trimRows)+aData.maxshift),(min(trimCols)-aData.maxshift):(max(trimCols)+aData.maxshift)) = template;
 

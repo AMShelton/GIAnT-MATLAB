@@ -2,16 +2,16 @@ function saveAnnotationsH5(filename, ROIs)
 %SAVEANNOTATIONSH5 Save manual ROI annotations to an HDF5 file.
 %
 % File schema:
-%   /DMD1/dr
-%   /DMD1/fn
-%   /DMD1/roi_001/type
-%   /DMD1/roi_001/label
-%   /DMD1/roi_001/mask
-%   /DMD1/roi_001/position (polygon only)
-%   /DMD1/roi_001/center (circle/ellipse)
-%   /DMD1/roi_001/semi_axes (ellipse)
-%   /DMD1/roi_001/rotation_angle (ellipse)
-%   /DMD1/roi_001/radius (circle)
+%   /Path1/dr
+%   /Path1/fn
+%   /Path1/roi_001/type
+%   /Path1/roi_001/label
+%   /Path1/roi_001/mask
+%   /Path1/roi_001/position (polygon only)
+%   /Path1/roi_001/center (circle/ellipse)
+%   /Path1/roi_001/semi_axes (ellipse)
+%   /Path1/roi_001/rotation_angle (ellipse)
+%   /Path1/roi_001/radius (circle)
 
 if nargin < 2
     error('saveAnnotationsH5:MissingInput', 'filename and ROIs are required.');
@@ -22,18 +22,18 @@ if exist(filename, 'file')
 end
 
 for DMDix = 1:numel(ROIs)
-    dmdPath = sprintf('/DMD%d', DMDix);
+    pathRoot = sprintf('/Path%d', DMDix);
 
     if isfield(ROIs(DMDix), 'dr')
-        writeString(filename, [dmdPath '/dr'], ROIs(DMDix).dr);
+        writeString(filename, [pathRoot '/dr'], ROIs(DMDix).dr);
     else
-        writeString(filename, [dmdPath '/dr'], '');
+        writeString(filename, [pathRoot '/dr'], '');
     end
 
     if isfield(ROIs(DMDix), 'fn')
-        writeString(filename, [dmdPath '/fn'], ROIs(DMDix).fn);
+        writeString(filename, [pathRoot '/fn'], ROIs(DMDix).fn);
     else
-        writeString(filename, [dmdPath '/fn'], '');
+        writeString(filename, [pathRoot '/fn'], '');
     end
 
     if isfield(ROIs(DMDix), 'roiData') && ~isempty(ROIs(DMDix).roiData)
@@ -41,10 +41,10 @@ for DMDix = 1:numel(ROIs)
     else
         roiData = {};
     end
-    writeDataset(filename, [dmdPath '/n_rois'], uint32(numel(roiData)));
+    writeDataset(filename, [pathRoot '/n_rois'], uint32(numel(roiData)));
 
     for rix = 1:numel(roiData)
-        roiPath = sprintf('%s/roi_%03d', dmdPath, rix);
+        roiPath = sprintf('%s/roi_%03d', pathRoot, rix);
         S = roiData{rix};
 
         writeString(filename, [roiPath '/type'], normalizeType(getFieldOrDefault(S, 'Type', '')));

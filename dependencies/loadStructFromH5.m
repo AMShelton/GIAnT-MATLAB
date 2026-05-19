@@ -15,6 +15,20 @@ end
 
 info = h5info(filename);
 s = readGroup(filename, info);
+if isfield(s, 'slap2_info') && isstruct(s.slap2_info) && isfield(s.slap2_info, 'ref_stack')
+    rs = s.slap2_info.ref_stack;
+    for fn = fieldnames(rs)'
+        tok = regexp(fn{1}, '^DMD(\d+)$', 'tokens', 'once');
+        if ~isempty(tok)
+            pathFn = ['Path' tok{1}];
+            if ~isfield(rs, pathFn)
+                rs.(pathFn) = rs.(fn{1});
+            end
+            rs = rmfield(rs, fn{1});
+        end
+    end
+    s.slap2_info.ref_stack = rs;
+end
 end
 
 

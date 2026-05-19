@@ -59,7 +59,7 @@ nDMDs = numel(DMDixs);
 refStack = struct();
 %find the files within the entire folder structure named REFERENCE
 for DMDix = DMDixs
-    dmdKey = ['DMD' int2str(DMDix)];
+    pathKey = ['Path' int2str(DMDix)];
     list = dir([dr filesep '**' filesep '*DMD' int2str(DMDix) '*_CONFIG1-REFERENCE*']);
     if isempty(list)
         list = dir([dr filesep '**' filesep '*DMD' int2str(DMDix) '*-REFERENCE*']);
@@ -69,7 +69,7 @@ for DMDix = DMDixs
         error(['Could not find reference image within folder: ' dr])
     case 1
         DMD1refFn = fullfile(list(1).folder, list(1).name);
-        [refStack.(dmdKey).IM, ~, desc] = ScanImageTiffWrapper(DMD1refFn);
+        [refStack.(pathKey).IM, ~, desc] = ScanImageTiffWrapper(DMD1refFn);
 
         %load metadata for the reference stack and BCI ROI
         zIx = 0; Zs = []; channels = [];
@@ -86,9 +86,9 @@ for DMDix = DMDixs
                     Zs(zIx) = jj.z;
                 end
         end
-        refStack.(dmdKey).channels = channels;
-        refStack.(dmdKey).Zs = Zs;
-        refStack.(dmdKey).dmdPixel2SampleTransform = jj.dmdPixel2SampleTransform;
+        refStack.(pathKey).channels = channels;
+        refStack.(pathKey).Zs = Zs;
+        refStack.(pathKey).dmdPixel2SampleTransform = jj.dmdPixel2SampleTransform;
 
     otherwise
         list = dir([dr filesep '**' filesep '*DMD' int2str(DMDix) '_CONFIG1-REFERENCE*.tif']);
@@ -97,7 +97,7 @@ for DMDix = DMDixs
                 error('Too many reference stacks found in the specified directory!');
             case 1
                 DMD1refFn = fullfile(list(1).folder, list(1).name);
-                [refStack.(dmdKey).IM, ~, desc] = ScanImageTiffWrapper(DMD1refFn);
+                [refStack.(pathKey).IM, ~, desc] = ScanImageTiffWrapper(DMD1refFn);
 
                 %load metadata for the reference stack and BCI ROI
                 zIx = 0; Zs = []; channels = [];
@@ -114,9 +114,9 @@ for DMDix = DMDixs
                             Zs(zIx) = jj.z;
                         end
                 end
-                refStack.(dmdKey).channels = channels;
-                refStack.(dmdKey).Zs = Zs;
-                refStack.(dmdKey).dmdPixel2SampleTransform = jj.dmdPixel2SampleTransform;
+                refStack.(pathKey).channels = channels;
+                refStack.(pathKey).Zs = Zs;
+                refStack.(pathKey).dmdPixel2SampleTransform = jj.dmdPixel2SampleTransform;
             otherwise
                 error('Too many CONFIG1 reference stacks found in the specified directory!');
         end

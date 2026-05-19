@@ -25,7 +25,7 @@ Each experiment processed with GIAnT first gets a trial_table.h5 file that summa
  ├ 📄 epoch
  ├ 📂 slap2
  |  ├ 📂 ref_stack
- |  |  └ 📂 DMD{1,2}
+ |  |  └ 📂 Path{1,2}
  |  |     ├ 📄 IM
  |  |     ├ 📄 channels
  |  |     ├ 📄 Zs
@@ -83,7 +83,7 @@ In our pipeline, users can manually annotate pixels to exclude from analysis or 
 
 ```
 📦 annotations.h5
- └ 📂 DMD{1,2}
+ └ 📂 Path{1,2}
     ├ 📄 dr
     ├ 📄 fn
     ├ 📄 n_rois
@@ -105,7 +105,7 @@ The final step of the pipeline, source extraction (Source Identification by Acti
 ```
 📦 experiment_summary.h5
  ├ 📄 params
- └ 📂 DMD{1,2}
+ └ 📂 Path{1,2}
     ├ 📄 Z_depths (fastz x 1)
     ├ 📂 frame_info
     |  ├ 📄 offlineXshifts (total frames x 1)
@@ -150,28 +150,28 @@ The final step of the pipeline, source extraction (Source Identification by Acti
 | --- | --- | --- | --- |
 | `datadr` | 1 x 1 | string | Data directory location |
 | `savedr` | 1 x 1 | string | Results directory location |
-| `filename` | nDMDs x total trials | string (ragged) | Relative file name from `datadr` |
-| `true_trial_ix` | nDMDs x total trials | integer | Trial indices unraveled by epochs |
-| `epoch` | nDMDs x total trials | integer | Epoch numbers |
+| `filename` | nPaths x total trials | string (ragged) | Relative file name from `datadr` |
+| `true_trial_ix` | nPaths x total trials | integer | Trial indices unraveled by epochs |
+| `epoch` | nPaths x total trials | integer | Epoch numbers |
 | `slap2_info` | — | group | Only saved for SLAP2 experiments |
-| `slap2_info/ref_stack/DMD{1,2}/IM` | image dims | numeric | Reference stack image |
-| `slap2_info/ref_stack/DMD{1,2}/channels` | 1 x nChannels | numeric | Color channels |
-| `slap2_info/ref_stack/DMD{1,2}/Zs` | 1 x nZ | numeric | Z positions |
-| `slap2_info/ref_stack/DMD{1,2}/dmdPixel2SampleTransform` | 3 x 3 | numeric | Transformation matrix |
-| `slap2_info/first_line` | nDMDs x total trials | integer | First line of each trial |
-| `slap2_info/last_line` | nDMDs x total trials | integer | Last line of each trial |
+| `slap2_info/ref_stack/Path{1,2}/IM` | image dims | numeric | Reference stack image |
+| `slap2_info/ref_stack/Path{1,2}/channels` | 1 x nChannels | numeric | Color channels |
+| `slap2_info/ref_stack/Path{1,2}/Zs` | 1 x nZ | numeric | Z positions |
+| `slap2_info/ref_stack/Path{1,2}/dmdPixel2SampleTransform` | 3 x 3 | numeric | Transformation matrix |
+| `slap2_info/first_line` | nPaths x total trials | integer | First line of each trial |
+| `slap2_info/last_line` | nPaths x total trials | integer | Last line of each trial |
 | `slap2_info/trial_start_time_inferred` | 1 x total trials | integer | Inferred trial start times |
 | `slap2_info/trial_end_time_from_pc` | 1 x total trials | integer | Trial end times from PC |
 | `motion_correction` | — | group | Written by motion correction stage |
-| `motion_correction/fn_reg_ds` | nDMDs x total trials | string | Registered + downsampled tif filename |
-| `motion_correction/fn_adata` | nDMDs x total trials | string | Alignment metadata `_ALIGNMENTDATA.h5` filename |
-| `motion_correction/fn_raw` | nDMDs x total trials | string | Registered raw-resolution file (Bergamo only) |
-| `motion_correction/registration_failed` | nDMDs x total trials | bool | Whether registration failed |
-| `motion_correction/first_line_original` | nDMDs x total trials | integer | Original `slap2_info/first_line` before reVolt adjustment |
+| `motion_correction/fn_reg_ds` | nPaths x total trials | string | Registered + downsampled tif filename |
+| `motion_correction/fn_adata` | nPaths x total trials | string | Alignment metadata `_ALIGNMENTDATA.h5` filename |
+| `motion_correction/fn_raw` | nPaths x total trials | string | Registered raw-resolution file (Bergamo only) |
+| `motion_correction/registration_failed` | nPaths x total trials | bool | Whether registration failed |
+| `motion_correction/first_line_original` | nPaths x total trials | integer | Original `slap2_info/first_line` before reVolt adjustment |
 | `motion_correction/align_params` | — | struct | Alignment parameters used |
 | `source_extraction` | — | group | Written by source extraction stage |
 | `source_extraction/analysis_params` | — | struct | Analysis parameters used |
-| `source_extraction/fn_raw` | nDMDs x total trials | string | Raw file source extraction reads from per trial |
+| `source_extraction/fn_raw` | nPaths x total trials | string | Raw file source extraction reads from per trial |
 
 ### `<trial_stem>_ALIGNMENTDATA.h5`
 
@@ -211,57 +211,57 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
-| `DMD{n}` | — | group | One group per DMD in trial-table order |
-| `DMD{n}/dr` | 1 x nChars | uint16 | Motion-correction directory used while drawing these ROIs |
-| `DMD{n}/fn` | 1 x nChars | uint16 | Trial stem used when displaying ROI GUI |
-| `DMD{n}/n_rois` | 1 x 1 | uint32 | Number of saved ROI entries for this DMD |
-| `DMD{n}/roi_###/type` | 1 x nChars | uint16 | ROI geometry type: `polygon`, `circle`, or `ellipse` |
-| `DMD{n}/roi_###/label` | 1 x nChars | uint16 | User label (e.g., `SOMA`) |
-| `DMD{n}/roi_###/mask` | rows x cols | uint8 | Binary ROI mask in image coordinates (1 = included pixel) |
-| `DMD{n}/roi_###/position` | nVertices x 2 | double | Polygon vertices `[x y]` (polygon only) |
-| `DMD{n}/roi_###/center` | 1 x 2 | double | Center `[x y]` (circle/ellipse) |
-| `DMD{n}/roi_###/semi_axes` | 1 x 2 | double | Ellipse semi-axes lengths (ellipse only) |
-| `DMD{n}/roi_###/rotation_angle` | 1 x 1 | double | Ellipse rotation angle in degrees (ellipse only) |
-| `DMD{n}/roi_###/radius` | 1 x 1 | double | Circle radius (circle only) |
+| `Path{n}` | — | group | One group per imaging path in trial-table order |
+| `Path{n}/dr` | 1 x nChars | uint16 | Motion-correction directory used while drawing these ROIs |
+| `Path{n}/fn` | 1 x nChars | uint16 | Trial stem used when displaying ROI GUI |
+| `Path{n}/n_rois` | 1 x 1 | uint32 | Number of saved ROI entries for this path |
+| `Path{n}/roi_###/type` | 1 x nChars | uint16 | ROI geometry type: `polygon`, `circle`, or `ellipse` |
+| `Path{n}/roi_###/label` | 1 x nChars | uint16 | User label (e.g., `SOMA`) |
+| `Path{n}/roi_###/mask` | rows x cols | uint8 | Binary ROI mask in image coordinates (1 = included pixel) |
+| `Path{n}/roi_###/position` | nVertices x 2 | double | Polygon vertices `[x y]` (polygon only) |
+| `Path{n}/roi_###/center` | 1 x 2 | double | Center `[x y]` (circle/ellipse) |
+| `Path{n}/roi_###/semi_axes` | 1 x 2 | double | Ellipse semi-axes lengths (ellipse only) |
+| `Path{n}/roi_###/rotation_angle` | 1 x 1 | double | Ellipse rotation angle in degrees (ellipse only) |
+| `Path{n}/roi_###/radius` | 1 x 1 | double | Circle radius (circle only) |
 
 ### `experiment_summary.h5`
 
-Field reference for the layout in the schematic tree above (per-DMD HDF5 groups). `SILo.m` currently writes `ExperimentSummary-*.mat` in `source_extraction/`; an HDF5 export is expected to mirror these paths. Dimensions use one `total frames` axis for all trials from that DMD stitched in time.
+Field reference for the layout in the schematic tree above (per-path HDF5 groups). `SILo.m` currently writes `ExperimentSummary-*.mat` in `source_extraction/`; an HDF5 export is expected to mirror these paths. Dimensions use one `total frames` axis for all trials from that path stitched in time.
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
 | `params` | — | struct | Analysis parameters (`SILo` `params` struct) |
-| `DMD{n}` | — | group | One group per DMD |
-| `DMD{n}/Z_depths` | fastz x 1 | numeric | Z depths per imaging plane |
-| `DMD{n}/frame_info` | — | group | Trial and frame bookkeeping for stitched time series |
-| `DMD{n}/frame_info/offlineXshifts` | total frames x 1 | numeric | Offline registration X shift per frame |
-| `DMD{n}/frame_info/offlineYshifts` | total frames x 1 | numeric | Offline registration Y shift per frame |
-| `DMD{n}/frame_info/offlineZshifts` | total frames x 1 | numeric | Offline registration Z shift per frame |
-| `DMD{n}/frame_info/onlineXshifts` | total frames x 1 | numeric | (SLAP2 only) online X shift per frame |
-| `DMD{n}/frame_info/onlineYshifts` | total frames x 1 | numeric | (SLAP2 only) online Y shift per frame |
-| `DMD{n}/frame_info/onlineZshifts` | total frames x 1 | numeric | (SLAP2 only) online Z shift per frame |
-| `DMD{n}/frame_info/trial_num_frames` | trials x 1 | integer | Number of frames contributed by each analysis trial |
-| `DMD{n}/frame_info/frame_line_idxs` | total frames x 1 | integer | Raw line (SLAP2) or frame (other microscopes) index for each frame in the stitched series |
-| `DMD{n}/frame_info/discard_frames` | total frames x 1 | bool or uint8 | Frame excluded from analysis (e.g., motion censoring) |
-| `DMD{n}/visualizations` | — | group | Static images for QC and publication |
-| `DMD{n}/visualizations/mean_im` | channels x fastz x rows x cols | numeric | Mean registered image per channel / Z slice |
-| `DMD{n}/visualizations/ref_stack` | ref_stack_channels x depths x rows x cols | numeric | (SLAP2 only) Reference stack used for alignment / display |
-| `DMD{n}/visualizations/ref_stack/channels` | ref_stack_channels x 1 | numeric | (SLAP2 only) Channel index or ID for each plane in `ref_stack` |
-| `DMD{n}/visualizations/act_im` | fastz x rows x cols | numeric | Activity / localization summary image (single contrast) |
-| `DMD{n}/global` | — | group | Whole-field signals |
-| `DMD{n}/global/F` | channels x total frames | numeric | Fluorescence traces over the field (one column per channel) |
-| `DMD{n}/user_rois` | — | group | Traces from manually drawn ROIs (when present) |
-| `DMD{n}/user_rois/names` | rois x 1 | string | User-defined ROI names |
-| `DMD{n}/user_rois/mask` | rois x fastz x rows x cols | uint8 or bool | Stacked binary masks for each user ROI |
-| `DMD{n}/user_rois/Fsvd` | rois x channels x total frames | numeric | ROI signals after SVD / projection step (if used) |
-| `DMD{n}/user_rois/F` | rois x channels x total frames | numeric | Raw or baseline-corrected ROI fluorescence |
-| `DMD{n}/sources` | — | group | SILo-detected sources |
-| `DMD{n}/sources/spatial` | — | group | Spatial fingerprints and locations |
-| `DMD{n}/sources/spatial/profiles` | sources x fastz x rows x cols | numeric | Spatial component / pixel weights per source |
-| `DMD{n}/sources/spatial/coords` | sources x 3 | numeric | Source centers per row: `[z_loc, x_loc, y_loc]` |
-| `DMD{n}/sources/temporal` | — | group | Frame-by-frame source activity |
-| `DMD{n}/sources/temporal/dF_ls` | sources x channels x total frames | numeric | Least-squares ΔF (absolute or scaled) |
-| `DMD{n}/sources/temporal/dF_denoised` | sources x channels x total frames | numeric | Denoised ΔF |
-| `DMD{n}/sources/temporal/events` | sources x channels x total frames | numeric | Deconvolved source events |
-| `DMD{n}/sources/temporal/F0` | sources x channels x total frames | numeric | Baseline estimate used for normalization |
-| `DMD{n}/sources/temporal/SNR` | sources x 1 | numeric | Signal-to-noise ratio metric |
+| `Path{n}` | — | group | One group per imaging path |
+| `Path{n}/Z_depths` | fastz x 1 | numeric | Z depths per imaging plane (SLAP2 only) |
+| `Path{n}/frame_info` | — | group | Trial and frame bookkeeping for stitched time series |
+| `Path{n}/frame_info/offlineXshifts` | total frames x 1 | numeric | Offline registration X shift per frame |
+| `Path{n}/frame_info/offlineYshifts` | total frames x 1 | numeric | Offline registration Y shift per frame |
+| `Path{n}/frame_info/offlineZshifts` | total frames x 1 | numeric | Offline registration Z shift per frame |
+| `Path{n}/frame_info/onlineXshifts` | total frames x 1 | numeric | (SLAP2 only) online X shift per frame |
+| `Path{n}/frame_info/onlineYshifts` | total frames x 1 | numeric | (SLAP2 only) online Y shift per frame |
+| `Path{n}/frame_info/onlineZshifts` | total frames x 1 | numeric | (SLAP2 only) online Z shift per frame |
+| `Path{n}/frame_info/trial_num_frames` | trials x 1 | integer | Number of frames contributed by each analysis trial |
+| `Path{n}/frame_info/frame_line_idxs` | total frames x 1 | integer | Raw line (SLAP2) or frame (other microscopes) index for each frame in the stitched series |
+| `Path{n}/frame_info/discard_frames` | total frames x 1 | bool or uint8 | Frame excluded from analysis (e.g., motion censoring) |
+| `Path{n}/visualizations` | — | group | Static images for QC and publication |
+| `Path{n}/visualizations/mean_im` | channels x fastz x rows x cols | numeric | Mean registered image per channel / Z slice |
+| `Path{n}/visualizations/ref_stack` | ref_stack_channels x depths x rows x cols | numeric | (SLAP2 only) Reference stack used for alignment / display |
+| `Path{n}/visualizations/ref_stack/channels` | ref_stack_channels x 1 | numeric | (SLAP2 only) Channel index or ID for each plane in `ref_stack` |
+| `Path{n}/visualizations/act_im` | fastz x rows x cols | numeric | Activity / localization summary image (single contrast) |
+| `Path{n}/global` | — | group | Whole-field signals |
+| `Path{n}/global/F` | channels x total frames | numeric | Fluorescence traces over the field (one column per channel) |
+| `Path{n}/user_rois` | — | group | Traces from manually drawn ROIs (when present) |
+| `Path{n}/user_rois/names` | rois x 1 | string | User-defined ROI names |
+| `Path{n}/user_rois/mask` | rois x fastz x rows x cols | uint8 or bool | Stacked binary masks for each user ROI |
+| `Path{n}/user_rois/Fsvd` | rois x channels x total frames | numeric | ROI signals after SVD / projection step (if used) |
+| `Path{n}/user_rois/F` | rois x channels x total frames | numeric | Raw or baseline-corrected ROI fluorescence |
+| `Path{n}/sources` | — | group | SILo-detected sources |
+| `Path{n}/sources/spatial` | — | group | Spatial fingerprints and locations |
+| `Path{n}/sources/spatial/profiles` | sources x fastz x rows x cols | numeric | Spatial component / pixel weights per source |
+| `Path{n}/sources/spatial/coords` | sources x 3 | numeric | Source centers per row: `[z_loc, x_loc, y_loc]` |
+| `Path{n}/sources/temporal` | — | group | Frame-by-frame source activity |
+| `Path{n}/sources/temporal/dF_ls` | sources x channels x total frames | numeric | Least-squares ΔF (absolute or scaled) |
+| `Path{n}/sources/temporal/dF_denoised` | sources x channels x total frames | numeric | Denoised ΔF |
+| `Path{n}/sources/temporal/events` | sources x channels x total frames | numeric | Deconvolved source events |
+| `Path{n}/sources/temporal/F0` | sources x channels x total frames | numeric | Baseline estimate used for normalization |
+| `Path{n}/sources/temporal/SNR` | sources x 1 | numeric | Signal-to-noise ratio metric |
