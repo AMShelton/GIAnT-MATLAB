@@ -119,8 +119,6 @@ The final step of the pipeline, source extraction (Source Identification by Acti
     |  └ 📄 discard_frames (total frames x 1)
     ├ 📂 visualizations
     |  ├ 📄 mean_im (channels x fastz x rows x cols)
-    |  ├ 📄 ref_stack (ref_stack_channels x depths x rows x cols)
-    |  |  └ 📄 channels (ref_stack_channels x 1)
     |  └ 📄 act_im (fastz x rows x cols)
     ├ 📂 global
     |  └ 📄 F (channels x total frames)
@@ -245,8 +243,6 @@ Field reference for the layout in the schematic tree above (per-path HDF5 groups
 | `Path{n}/frame_info/discard_frames` | total frames x 1 | bool or uint8 | Frame excluded from analysis (e.g., motion censoring) |
 | `Path{n}/visualizations` | — | group | Static images for QC and publication |
 | `Path{n}/visualizations/mean_im` | channels x fastz x rows x cols | numeric | Mean registered image per channel / Z slice |
-| `Path{n}/visualizations/ref_stack` | ref_stack_channels x depths x rows x cols | numeric | (SLAP2 only) Reference stack used for alignment / display |
-| `Path{n}/visualizations/ref_stack/channels` | ref_stack_channels x 1 | numeric | (SLAP2 only) Channel index or ID for each plane in `ref_stack` |
 | `Path{n}/visualizations/act_im` | fastz x rows x cols | numeric | Activity / localization summary image (single contrast) |
 | `Path{n}/global` | — | group | Whole-field signals |
 | `Path{n}/global/F` | channels x total frames | numeric | Fluorescence traces over the field (one column per channel) |
