@@ -57,9 +57,11 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
  ├ 📄 alignHz
  ├ 📄 motionDSc
  ├ 📄 motionDSr
+ ├ 📄 motionDSz
  ├ 📄 recNegErr
  ├ 📄 motionC
  ├ 📄 motionR
+ ├ 📄 motionZ
  ├ 📄 DSframes
  ├ 📄 registrationFailed
  └ 📂 slap2
@@ -123,7 +125,7 @@ The final step of the pipeline, source extraction (Source Identification by Acti
     ├ 📂 global
     |  └ 📄 F (channels x total frames)
     ├ 📂 user_rois
-    |  ├ 📄 names (rois x 1 string)
+    |  ├ 📄 labels (rois x 1)
     |  ├ 📄 mask (rois x fastz x rows x cols)
     |  ├ 📄 Fsvd (rois x channels x total frames)
     |  └ 📄 F (rois x channels x total frames)
@@ -183,9 +185,11 @@ Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripReg
 | `alignHz` | 1 x 1 | numeric | Frame rate (Hz) at which alignment was performed |
 | `motionDSc` | 1 x nDSframes | numeric | Inferred column shift per downsampled frame |
 | `motionDSr` | 1 x nDSframes | numeric | Inferred row shift per downsampled frame |
+| `motionDSz` | 1 x nDSframes | numeric | (optional) Inferred Z shift per downsampled frame; written only when 3D alignment was performed |
 | `recNegErr` | 1 x nDSframes | numeric | Per-frame reconstruction error used for motion censoring |
 | `motionC` | 1 x nFrames | numeric | Column shift upsampled to raw frame rate (Bergamo only) |
 | `motionR` | 1 x nFrames | numeric | Row shift upsampled to raw frame rate (Bergamo only) |
+| `motionZ` | 1 x nFrames | numeric | (optional) Z shift upsampled to raw frame rate; written only when 3D alignment was performed |
 | `DSframes` | 1 x nDSframes | integer | Line indices of each downsampled frame (SLAP2 only) |
 | `registrationFailed` | 1 x 1 | bool | Whether registration failed for this trial (SLAP2 only) |
 | `slap2` | — | group | Only saved for SLAP2 experiments |
@@ -247,7 +251,7 @@ Field reference for the layout in the schematic tree above (per-path HDF5 groups
 | `Path{n}/global` | — | group | Whole-field signals |
 | `Path{n}/global/F` | channels x total frames | numeric | Fluorescence traces over the field (one column per channel) |
 | `Path{n}/user_rois` | — | group | Traces from manually drawn ROIs (when present) |
-| `Path{n}/user_rois/names` | rois x 1 | string | User-defined ROI names |
+| `Path{n}/user_rois/labels` | rois x 1 | string | User-defined ROI labels |
 | `Path{n}/user_rois/mask` | rois x fastz x rows x cols | uint8 or bool | Stacked binary masks for each user ROI |
 | `Path{n}/user_rois/Fsvd` | rois x channels x total frames | numeric | ROI signals after SVD / projection step (if used) |
 | `Path{n}/user_rois/F` | rois x channels x total frames | numeric | Raw or baseline-corrected ROI fluorescence |
