@@ -65,9 +65,18 @@ if params.drawUserRois
     if exist(fnAnnH5, 'file')
         ROIs = loadAnnotationsH5(fnAnnH5);
     else
+        drawnDMDs = false(1, nDMDs);
         for DMDix = 1:nDMDs
-            %load image data (prefer meanIM from alignment H5 of same trial; matches mean(IM,[3 4]) after H,W,C,T reshape)
             firstValidTrial = find(keepTrials(DMDix,:),1,"first");
+            if isempty(firstValidTrial)
+                warning('SILo:NoValidTrials', ...
+                    'Skipping ROI drawing for imaging path %d: no trials passed file verification.', DMDix);
+                ROIs(DMDix).dr = mocodr;
+                ROIs(DMDix).fn = '';
+                ROIs(DMDix).roiData = [];
+                continue
+            end
+            %load image data (prefer meanIM from alignment H5 of same trial; matches mean(IM,[3 4]) after H,W,C,T reshape)
             [~, fn, ext] = fileparts(trialTable.motion_correction.fn_reg_ds{DMDix,firstValidTrial});
             adataFn = trialTable.motion_correction.fn_adata{DMDix, firstValidTrial};
             aDataAnnot = loadStructFromH5(fullfile(mocodr, adataFn));
@@ -80,8 +89,9 @@ if params.drawUserRois
             hROIs(DMDix) = drawROIs(sqrt(max(0,IM)), savedr, fn);
             ROIs(DMDix).dr = mocodr;
             ROIs(DMDix).fn = fn;
+            drawnDMDs(DMDix) = true;
         end
-        for DMDix = 1:nDMDs
+        for DMDix = find(drawnDMDs)
             waitfor(hROIs(DMDix).hF);
             ROIs(DMDix).roiData = hROIs(DMDix).roiData;
         end
@@ -93,8 +103,26 @@ end
 
 %PROCESS DATA
 for DMDix = nDMDs:-1:1
-    %load some metadata
     firstValidTrial = find(keepTrials(DMDix,:),1,"first");
+    if isempty(firstValidTrial)
+        warning('SILo:NoValidTrials', ...
+            'Skipping imaging path %d: no trials passed file verification.', DMDix);
+        exptSummary.Z(DMDix) = nan;
+        exptSummary.meanIM{DMDix} = [];
+        exptSummary.actIM{DMDix} = [];
+        exptSummary.selPix{DMDix} = [];
+        exptSummary.sources{DMDix} = struct('R', [], 'C', [], 'V', []);
+        exptSummary.userROIs{DMDix} = [];
+        exptSummary.peaks{DMDix} = cell(1, nTrials);
+        exptSummary.perTrialMeanIMs{DMDix} = [];
+        exptSummary.perTrialMeanIMsAligned{DMDix} = [];
+        exptSummary.perTrialActIms{DMDix} = [];
+        exptSummary.perTrialActIMsAligned{DMDix} = [];
+        exptSummary.perTrialAlignmentOffsets{DMDix} = [];
+        continue
+    end
+
+    %load some metadata
     fn = trialTable.motion_correction.fn_adata{DMDix,firstValidTrial};
     aData = loadStructFromH5(fullfile(mocodr, fn));
     numChannels = aData.numChannels;
