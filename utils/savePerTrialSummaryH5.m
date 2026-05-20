@@ -90,7 +90,7 @@ end
 
 
 function peaksOut = buildPerTrialActImPeaks(peaksCell, nTrials, exptSummary, DMDix)
-% trials x max_peaks x 3 [z_loc, x_loc, y_loc], NaN-padded; z_loc is 0.
+% trials x max_peaks x 3 [z_loc, y_loc, x_loc], NaN-padded; z_loc is 0.
 peaksOut = struct();
 
 numPeaks = zeros(nTrials, 1);
@@ -126,8 +126,8 @@ for tIx = 1:nTrials
         pCols = pCols - motOutput(2, tIx);
     end
     perTrialActImPeaks(tIx, 1:nP, 1) = 0;
-    perTrialActImPeaks(tIx, 1:nP, 2) = pCols - 1;
-    perTrialActImPeaks(tIx, 1:nP, 3) = pRows - 1;
+    perTrialActImPeaks(tIx, 1:nP, 2) = pRows - 1;
+    perTrialActImPeaks(tIx, 1:nP, 3) = pCols - 1;
 end
 peaksOut.per_trial_act_im_peaks = perTrialActImPeaks;
 end
@@ -176,8 +176,8 @@ for tIx = 1:nTrials
         perTrialProfiles(tIx, sIx, 1, :, :) = img;
         wsum = sum(w, 'omitnan');
         if wsum > 0
-            perTrialCoords(tIx, sIx, 2) = sum(w .* cPix, 'omitnan') / wsum - 1;
-            perTrialCoords(tIx, sIx, 3) = sum(w .* rPix, 'omitnan') / wsum - 1;
+            perTrialCoords(tIx, sIx, 2) = sum(w .* rPix, 'omitnan') / wsum - 1;
+            perTrialCoords(tIx, sIx, 3) = sum(w .* cPix, 'omitnan') / wsum - 1;
         end
     end
 end

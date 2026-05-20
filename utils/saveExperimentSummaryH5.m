@@ -219,13 +219,13 @@ vis.mean_im = reshape(permute(mIm3, [3 1 2]), C, 1, H, W);
 aIm = exptSummary.actIM{DMDix};
 vis.act_im = reshape(aIm(:, :, 1), 1, size(aIm, 1), size(aIm, 2));
 
-% sources x 3 [z_loc, x_loc, y_loc], 0-indexed; z_loc fixed at 0.
+% sources x 3 [z_loc, y_loc, x_loc], 0-indexed; z_loc fixed at 0.
 sources = exptSummary.sources{DMDix};
 if isfield(sources, 'R') && isfield(sources, 'C') && ~isempty(sources.R)
     nSources = numel(sources.R);
     actImPeaks = zeros(nSources, 3);
-    actImPeaks(:, 2) = double(sources.C(:)) - 1;
-    actImPeaks(:, 3) = double(sources.R(:)) - 1;
+    actImPeaks(:, 2) = double(sources.R(:)) - 1;
+    actImPeaks(:, 3) = double(sources.C(:)) - 1;
     vis.act_im_peaks = actImPeaks;
 end
 end
@@ -339,7 +339,7 @@ if isfield(E0, 'dF') && isfield(E0.dF, 'ls') && ~isempty(E0.dF.ls)
 end
 
 % spatial: average footprint images across trials, then centroid of each
-% averaged profile (x_loc = column, y_loc = row).
+% averaged profile (y_loc = row, x_loc = column).
 sp = struct();
 if ~isempty(selPix)
     [imRows, imCols] = size(selPix);
@@ -362,17 +362,18 @@ if ~isempty(selPix)
     profiles = single(profileSum / nProfileTrials);
 
     coords = zeros(nSources, 3);
-    % coords are 0-indexed for HDF5/Python interop: z_loc is the 0-based
+    % coords are 0-indexed for HDF5/Python interop: [z_loc, y_loc, x_loc]
+    % matching image axis order (fastz, rows, cols). z_loc is the 0-based
     % index into the fastz axis of profiles (always 0 for currently
-    % supported single-plane recordings), and x_loc/y_loc are pixel
+    % supported single-plane recordings); y_loc/x_loc are row/column
     % centroids in the [0, dim-1] convention.
     [rGrid, cGrid] = ndgrid(1:imRows, 1:imCols);
     for sIx = 1:nSources
         img = squeeze(profiles(sIx, 1, :, :));
         wsum = sum(img(:));
         if wsum > 0
-            coords(sIx, 2) = sum(img(:) .* cGrid(:)) / wsum - 1;
-            coords(sIx, 3) = sum(img(:) .* rGrid(:)) / wsum - 1;
+            coords(sIx, 2) = sum(img(:) .* rGrid(:)) / wsum - 1;
+            coords(sIx, 3) = sum(img(:) .* cGrid(:)) / wsum - 1;
         end
     end
     sp.profiles = profiles;
