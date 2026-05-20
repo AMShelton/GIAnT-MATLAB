@@ -4,6 +4,27 @@ Glutamate Imaging Analysis Toolbox, MATLAB implementation
 
 <img width="1594" height="300" alt="GIAnT_schematic" src="GIAnT_schematic_horizontal.png" />
 
+## Requirements
+
+### MATLAB
+
+The earliest version of MATLAB this code has been tested on is MATLAB R2023b.
+
+**Required toolboxes**
+* Parallel Computing Toolbox
+* Image Processing Toolbox
+* Optimization Toolbox
+* Signal Processing Toolbox
+* Statistics and Machine Learning Toolbox
+
+### External packages
+
+* **SLAP2 data reader (only needed for processing SLAP2 data)** — add one of:
+  - **[Slap2DataReader](https://github.com/m-xie/Slap2DataReader)** - A MATLAB package for reading SLAP2 data
+  - **`slap2` from MBF Bioscience** — MATLAB package for SLAP2 microscope control
+
+* **[NoRMCorre](https://github.com/flatironinstitute/NoRMCorre)** - A MATLAB package for motion correction
+
 ## Epoch and Analysis Trial
 For each experiment we run through the pipeline, we break down the data into epochs and analysis trials.
 
