@@ -27,9 +27,12 @@ end
 
 pathNums = nan(size(pathNames));
 for ix = 1:numel(pathNames)
-    pathNums(ix) = sscanf(pathNames{ix}, 'Path%d');
-    if isempty(pathNums(ix))
-        pathNums(ix) = sscanf(pathNames{ix}, 'DMD%d');
+    num = sscanf(pathNames{ix}, 'Path%d', 1);
+    if isempty(num)
+        num = sscanf(pathNames{ix}, 'DMD%d', 1);
+    end
+    if ~isempty(num)
+        pathNums(ix) = num;
     end
 end
 [~, order] = sort(pathNums);
