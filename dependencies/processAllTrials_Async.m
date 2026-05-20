@@ -103,12 +103,13 @@ switch params.microscope
         CD.motionC = motionC;
         CD.motionR = motionR;
 
-        viewC = alignData.viewC(1,:);
-        viewR = alignData.viewR(:,1);
+        alignDataSlap2 = alignData.slap2;
+        viewC = alignDataSlap2.viewC(1,:);
+        viewR = alignDataSlap2.viewR(:,1);
 
-        selPx2D = selPx2D(1:size(alignData.viewC,1), 1:size(alignData.viewC,2));
+        selPx2D = selPx2D(1:size(alignDataSlap2.viewC,1), 1:size(alignDataSlap2.viewC,2));
         nPx = numel(selPx2D);
-        meanIM = meanIM(1:size(alignData.viewC,1), 1:size(alignData.viewC,2),:);
+        meanIM = meanIM(1:size(alignDataSlap2.viewC,1), 1:size(alignDataSlap2.viewC,2),:);
         labeled = medfilt2(meanIM(:,:,params.activityChannel), [3 3]);
         labeled = ~isnan(meanIM(:,:,params.activityChannel)) & labeled>3*prctile(labeled(~isnan(labeled)), 25); %labeled pixels
         
@@ -125,8 +126,8 @@ switch params.microscope
         for bix = nBlocks:-1:1
             fIxs  = blockEdges(bix):(blockEdges(bix+1)-1);
             [Y, Fresh] = S2data.getImages(orderedChannels,frameLines(fIxs),ceil(dt),1,1);
-            Y = Y(alignData.trimRows, alignData.trimCols,:,:);
-            Fresh = Fresh(alignData.trimRows, alignData.trimCols,:);
+            Y = Y(alignDataSlap2.trimRows, alignDataSlap2.trimCols,:,:);
+            Fresh = Fresh(alignDataSlap2.trimRows, alignDataSlap2.trimCols,:);
             nFramesInBlock = size(Y,4);
 
             Y2 = nan(length(viewR),length(viewC),numChannels, nFramesInBlock);
