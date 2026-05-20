@@ -8,6 +8,8 @@ if ~exist(filename, 'file')
     error('loadAnnotationsH5:FileNotFound', 'File not found: %s', filename);
 end
 
+coordsZeroIndexed = logical(readNumericOrDefault(filename, '/coords_zero_indexed', uint8(0)));
+
 info = h5info(filename);
 pathNames = {};
 for gix = 1:numel(info.Groups)
@@ -52,12 +54,12 @@ for DMDix = 1:numel(pathNames)
 
         position = readNumericOrDefault(filename, [roiPath '/position'], []);
         if ~isempty(position)
-            S.Position = double(position);
+            S.Position = h5CoordsToMatlabRoi(double(position), coordsZeroIndexed);
         end
 
         center = readNumericOrDefault(filename, [roiPath '/center'], []);
         if ~isempty(center)
-            S.Center = double(center(:).');
+            S.Center = h5CoordsToMatlabRoi(double(center), coordsZeroIndexed);
         end
 
         semiAxes = readNumericOrDefault(filename, [roiPath '/semi_axes'], []);
@@ -99,6 +101,20 @@ catch
     value = defaultValue;
 end
 end
+
+function xy = h5CoordsToMatlabRoi(coords, zeroIndexed)
+%H5COORDSTOMATLABROI Convert H5 coords to images.roi [x, y] (1-based).
+coords = double(coords);
+if zeroIndexed
+    xy = [coords(:, 2) + 1, coords(:, 1) + 1];
+else
+    xy = coords;
+end
+if size(xy, 1) == 1
+    xy = xy(1, :);
+end
+end
+
 
 function typeOut = denormalizeType(typeIn)
 switch lower(strtrim(typeIn))

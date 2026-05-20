@@ -84,6 +84,7 @@ In our pipeline, users can manually annotate pixels to exclude from analysis or 
 
 ```
 🗄️ annotations.h5
+ ├ ☑️ coords_zero_indexed
  └ 📁 Path{1,2}
     ├ 🔤 dr
     ├ 🔤 fn
@@ -92,8 +93,8 @@ In our pipeline, users can manually annotate pixels to exclude from analysis or 
        ├ 🔤 type
        ├ 🔤 label
        ├ 🖼️ mask
-       ├ 📈 position (polygon only)
-       ├ 📈 center (circle/ellipse)
+       ├ 📈 position (polygon only; nVertices x 2 [y_loc, x_loc] when flagged)
+       ├ 📈 center (circle/ellipse; 1 x 2 [y_loc, x_loc] when flagged)
        ├ 📈 semi_axes (ellipse)
        ├ 📈 rotation_angle (ellipse)
        └ 📈 radius (circle)
@@ -228,8 +229,11 @@ Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripReg
 `annotations.h5` is written by `annotateROIs.m` and by `SILo.m` (when `drawUserRois=true`).  
 String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Python compatibility.
 
+**Indexing conventions.** New files set `/coords_zero_indexed` to `1` and store `position`/`center` as **0-indexed `[y_loc, x_loc]`** (row, column), matching image axis order. Legacy files without this flag use MATLAB `images.roi` convention: **1-indexed `[x, y]`** (column, row).
+
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
+| `coords_zero_indexed` | 1 x 1 | uint8 | When `1`, `position`/`center` are 0-indexed `[y_loc, x_loc]`; when absent or `0`, legacy 1-indexed `[x, y]` |
 | `Path{n}` | — | group | One group per imaging path in trial-table order |
 | `Path{n}/dr` | 1 x nChars | uint16 | Motion-correction directory used while drawing these ROIs |
 | `Path{n}/fn` | 1 x nChars | uint16 | Trial stem used when displaying ROI GUI |
@@ -237,8 +241,8 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 | `Path{n}/roi_###/type` | 1 x nChars | uint16 | ROI geometry type: `polygon`, `circle`, or `ellipse` |
 | `Path{n}/roi_###/label` | 1 x nChars | uint16 | User label (e.g., `SOMA`) |
 | `Path{n}/roi_###/mask` | rows x cols | uint8 | Binary ROI mask in image coordinates (1 = included pixel) |
-| `Path{n}/roi_###/position` | nVertices x 2 | double | Polygon vertices `[x y]` (polygon only) |
-| `Path{n}/roi_###/center` | 1 x 2 | double | Center `[x y]` (circle/ellipse) |
+| `Path{n}/roi_###/position` | nVertices x 2 | double | Polygon vertices `[y_loc, x_loc]` when `coords_zero_indexed=1`, else legacy `[x, y]` |
+| `Path{n}/roi_###/center` | 1 x 2 | double | Circle/ellipse center `[y_loc, x_loc]` when `coords_zero_indexed=1`, else legacy `[x, y]` |
 | `Path{n}/roi_###/semi_axes` | 1 x 2 | double | Ellipse semi-axes lengths (ellipse only) |
 | `Path{n}/roi_###/rotation_angle` | 1 x 1 | double | Ellipse rotation angle in degrees (ellipse only) |
 | `Path{n}/roi_###/radius` | 1 x 1 | double | Circle radius (circle only) |

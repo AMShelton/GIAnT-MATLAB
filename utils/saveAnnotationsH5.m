@@ -2,6 +2,7 @@ function saveAnnotationsH5(filename, ROIs)
 %SAVEANNOTATIONSH5 Save manual ROI annotations to an HDF5 file.
 %
 % File schema:
+%   /coords_zero_indexed (uint8; 1 = position/center are 0-indexed [y_loc, x_loc])
 %   /Path1/dr
 %   /Path1/fn
 %   /Path1/roi_001/type
@@ -20,6 +21,8 @@ end
 if exist(filename, 'file')
     delete(filename);
 end
+
+writeDataset(filename, '/coords_zero_indexed', uint8(1));
 
 for DMDix = 1:numel(ROIs)
     pathRoot = sprintf('/Path%d', DMDix);
@@ -52,10 +55,12 @@ for DMDix = 1:numel(ROIs)
         writeDataset(filename, [roiPath '/mask'], uint8(logical(getFieldOrDefault(S, 'mask', false(0, 0)))));
 
         if isfield(S, 'Position') && ~isempty(S.Position)
-            writeDataset(filename, [roiPath '/position'], double(S.Position));
+            writeDataset(filename, [roiPath '/position'], ...
+                matlabRoiCoordsToH5(double(S.Position)));
         end
         if isfield(S, 'Center') && ~isempty(S.Center)
-            writeDataset(filename, [roiPath '/center'], double(S.Center));
+            writeDataset(filename, [roiPath '/center'], ...
+                matlabRoiCoordsToH5(double(S.Center)));
         end
         if isfield(S, 'SemiAxes') && ~isempty(S.SemiAxes)
             writeDataset(filename, [roiPath '/semi_axes'], double(S.SemiAxes));
@@ -98,6 +103,12 @@ else
     h5write(filename, path, value);
 end
 end
+
+function coords = matlabRoiCoordsToH5(xy)
+%MATLABROICOORDSTOH5 Convert images.roi [x, y] (1-based) to H5 [y_loc, x_loc].
+coords = [xy(:, 2) - 1, xy(:, 1) - 1];
+end
+
 
 function typeOut = normalizeType(typeIn)
 switch lower(char(typeIn))
