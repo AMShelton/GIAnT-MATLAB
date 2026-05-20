@@ -125,7 +125,8 @@ The final step of the pipeline, source extraction (Source Identification by Acti
     |  └ 📈 F (rois x channels x total frames)
     ├ 📁 visualizations
     |  ├ 🖼️ mean_im (channels x fastz x rows x cols)
-    |  └ 🖼️ act_im (fastz x rows x cols)
+    |  ├ 🖼️ act_im (fastz x rows x cols)
+    |  └ 🖼️ act_im_peaks (sources x 3)
     ├ 📁 global
     |  └ 📈 F (channels x total frames)
     └ 📁 frame_info
@@ -153,7 +154,9 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
     |     └ 📈 per_trial_coords (trials x sources x 3 [z_loc, x_loc, y_loc])
     └ 📁 visualizations
        ├ 🖼️ per_trial_mean_im (trials x channels x fastz x rows x cols)
-       └ 🖼️ per_trial_act_im (trials x fastz x rows x cols)
+       ├ 🖼️ per_trial_act_im (trials x fastz x rows x cols)
+       ├ 🖼️ per_trial_act_im_peaks (trials x max_peaks x 3 [z_loc, x_loc, y_loc])
+       └ 🔢 per_trial_num_peaks (trials x 1)
 ```
 
 
@@ -264,6 +267,7 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 | `Path{n}/visualizations` | — | group | Static images for QC and publication |
 | `Path{n}/visualizations/mean_im` | channels x fastz x rows x cols | numeric | Mean registered image per channel / Z slice |
 | `Path{n}/visualizations/act_im` | fastz x rows x cols | numeric | Activity / localization summary image (single contrast) |
+| `Path{n}/visualizations/act_im_peaks` | sources x 3 | numeric | Activity image peak locations used to seed matrix factorization `[z_loc, x_loc, y_loc]`, **0-indexed**; from `exptSummary.sources` row/column coordinates, `z_loc` fixed at `0` |
 | `Path{n}/global` | — | group | Whole-field signals |
 | `Path{n}/global/F` | channels x total frames | numeric | Fluorescence traces over the field (one column per channel) |
 | `Path{n}/user_rois` | — | group | Traces from manually drawn ROIs (when present) |
@@ -294,6 +298,8 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 | `Path{n}/visualizations` | — | group | Per-trial static images for QC |
 | `Path{n}/visualizations/per_trial_mean_im` | trials x channels x fastz x rows x cols | numeric | Trial-aligned mean registered image per channel / Z slice |
 | `Path{n}/visualizations/per_trial_act_im` | trials x fastz x rows x cols | numeric | Trial-aligned activity / localization summary image |
+| `Path{n}/visualizations/per_trial_act_im_peaks` | trials x max_peaks x 3 | numeric | Per-trial detected peak locations `[z_loc, x_loc, y_loc]`, **0-indexed**, NaN-padded when a trial has fewer than `max_peaks`; from `exptSummary.peaks` with trial alignment offsets applied |
+| `Path{n}/visualizations/per_trial_num_peaks` | trials x 1 | integer | Number of valid peaks per trial; use to slice `per_trial_act_im_peaks` without scanning for NaNs |
 | `Path{n}/sources` | — | group | Per-trial SILo source data (when sources were extracted) |
 | `Path{n}/sources/spatial` | — | group | Per-trial spatial fingerprints and locations |
 | `Path{n}/sources/spatial/per_trial_profiles` | trials x sources x fastz x rows x cols | numeric | Spatial component / pixel weights per source per trial |

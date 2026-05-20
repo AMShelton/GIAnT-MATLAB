@@ -6,7 +6,8 @@ function savePerTrialSummaryH5(filename, exptSummary, trialTable)
 %   documented in the README.md "Experiment Summary" section:
 %       /Path{n}/sources/temporal/per_trial_SNR
 %       /Path{n}/sources/spatial/{per_trial_profiles, per_trial_coords}
-%       /Path{n}/visualizations/{per_trial_mean_im, per_trial_act_im}
+%       /Path{n}/visualizations/{per_trial_mean_im, per_trial_act_im,
+%                                per_trial_act_im_peaks, per_trial_num_peaks}
 %
 %   The trial axis matches trial_table.h5 (all analysis trials). Trials
 %   without source extraction or alignment data are left as NaN in the
@@ -76,6 +77,59 @@ vis.per_trial_mean_im = perTrialMeanIm;
 
 % actAligned is preallocated to nTrials with NaN for skipped trials in SILo.
 vis.per_trial_act_im = permute(actAligned, [4 3 1 2]);
+
+peaksCell = exptSummary.peaks{DMDix};
+if ~isempty(peaksCell)
+    actImPeaks = buildPerTrialActImPeaks(peaksCell, nTrials, exptSummary, DMDix);
+    vis.per_trial_num_peaks = actImPeaks.per_trial_num_peaks;
+    if isfield(actImPeaks, 'per_trial_act_im_peaks')
+        vis.per_trial_act_im_peaks = actImPeaks.per_trial_act_im_peaks;
+    end
+end
+end
+
+
+function peaksOut = buildPerTrialActImPeaks(peaksCell, nTrials, exptSummary, DMDix)
+% trials x max_peaks x 3 [z_loc, x_loc, y_loc], NaN-padded; z_loc is 0.
+peaksOut = struct();
+
+numPeaks = zeros(nTrials, 1);
+for tIx = 1:nTrials
+    if ~isfield(peaksCell{tIx}, 'row') || isempty(peaksCell{tIx}.row)
+        continue
+    end
+    numPeaks(tIx) = numel(peaksCell{tIx}.row(:));
+end
+peaksOut.per_trial_num_peaks = int32(numPeaks);
+
+maxPeaks = max(numPeaks);
+if maxPeaks == 0
+    return
+end
+
+motOutput = [];
+if isfield(exptSummary, 'perTrialAlignmentOffsets') ...
+        && numel(exptSummary.perTrialAlignmentOffsets) >= DMDix
+    motOutput = exptSummary.perTrialAlignmentOffsets{DMDix};
+end
+
+perTrialActImPeaks = nan(nTrials, maxPeaks, 3);
+for tIx = 1:nTrials
+    nP = numPeaks(tIx);
+    if nP == 0
+        continue
+    end
+    pRows = double(peaksCell{tIx}.row(:));
+    pCols = double(peaksCell{tIx}.col(:));
+    if ~isempty(motOutput) && size(motOutput, 2) >= tIx
+        pRows = pRows - motOutput(1, tIx);
+        pCols = pCols - motOutput(2, tIx);
+    end
+    perTrialActImPeaks(tIx, 1:nP, 1) = 0;
+    perTrialActImPeaks(tIx, 1:nP, 2) = pCols - 1;
+    perTrialActImPeaks(tIx, 1:nP, 3) = pRows - 1;
+end
+peaksOut.per_trial_act_im_peaks = perTrialActImPeaks;
 end
 
 

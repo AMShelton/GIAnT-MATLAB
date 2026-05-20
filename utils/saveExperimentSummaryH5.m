@@ -8,7 +8,7 @@ function saveExperimentSummaryH5(filename, exptSummary, trialTable)
 %       /Path{n}/Z_depths
 %       /Path{n}/frame_info/{offline,online}{X,Y,Z}shifts,
 %                          trial_num_frames, frame_line_idxs, discard_frames
-%       /Path{n}/visualizations/{mean_im, act_im}
+%       /Path{n}/visualizations/{mean_im, act_im, act_im_peaks}
 %       /Path{n}/global/F
 %       /Path{n}/user_rois/{labels, mask, F, Fsvd}
 %       /Path{n}/sources/spatial/{profiles, coords}
@@ -218,6 +218,16 @@ vis.mean_im = reshape(permute(mIm3, [3 1 2]), C, 1, H, W);
 % rows x cols x 1 -> fastz(1) x rows x cols
 aIm = exptSummary.actIM{DMDix};
 vis.act_im = reshape(aIm(:, :, 1), 1, size(aIm, 1), size(aIm, 2));
+
+% sources x 3 [z_loc, x_loc, y_loc], 0-indexed; z_loc fixed at 0.
+sources = exptSummary.sources{DMDix};
+if isfield(sources, 'R') && isfield(sources, 'C') && ~isempty(sources.R)
+    nSources = numel(sources.R);
+    actImPeaks = zeros(nSources, 3);
+    actImPeaks(:, 2) = double(sources.C(:)) - 1;
+    actImPeaks(:, 3) = double(sources.R(:)) - 1;
+    vis.act_im_peaks = actImPeaks;
+end
 end
 
 
