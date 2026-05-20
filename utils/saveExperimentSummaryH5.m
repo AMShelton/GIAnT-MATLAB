@@ -356,7 +356,7 @@ if ~isempty(selPix)
             w(isnan(w)) = 0;
             img = zeros(imRows, imCols, 'single');
             img(selPix) = w;
-            profileSum(sIx, 1, :, :) = profileSum(sIx, 1, :, :) + img;
+            profileSum(sIx, 1, :, :) = profileSum(sIx, 1, :, :) + reshape(img, 1, 1, imRows, imCols);
         end
     end
     profiles = single(profileSum / nProfileTrials);
