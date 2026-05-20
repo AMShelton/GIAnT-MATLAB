@@ -420,7 +420,7 @@ if params.refStackTemplate
     aData.motionDSz = motionDSz;
 end
 aData.aError = aErrorDS;
-aData.Z = metaZ;
+aData.Z_depths = metaZ;
 %aData.aRankCorrDS = aRankCorrDS;
 aData.recNegErr = recNegErr;
 aData.cropRow = trimRows(1)-aData.maxshift; %offset to add to ROIs to index into original recording
@@ -458,8 +458,7 @@ toSave.recNegErr = aData.recNegErr;
 toSave.registrationFailed = aData.registrationFailed;
 toSave.slap2 = struct();
 toSave.slap2.varFacDS = aData.varFacDS;
-toSave.slap2.aError = aData.aError;
-toSave.slap2.Z = aData.Z;
+toSave.slap2.Z_depths = aData.Z_depths;
 toSave.slap2.cropRow = aData.cropRow;
 toSave.slap2.cropCol = aData.cropCol;
 toSave.slap2.viewC = aData.viewC;
@@ -470,7 +469,7 @@ toSave.slap2.onlineMotionXshift = aData.onlineXshift;
 toSave.slap2.onlineMotionYshift = aData.onlineYshift;
 toSave.slap2.onlineMotionZshift = aData.onlineZshift;
 if isfield(aData, 'motionDSz')
-    toSave.slap2.motionDSz = aData.motionDSz;
+    toSave.motionDSz = aData.motionDSz;
 end
 saveStructToH5(toSave, [mocosavedr filesep fnAdata]);
 end

@@ -54,7 +54,6 @@ savedr = fullfile(trialTable.savedr, 'source_extraction');
 if ~exist(savedr, 'dir')
     mkdir(savedr);
 end
-fnsave = [savedr filesep 'ExperimentSummary-' datestr(now, 'YYmmDD-HHMMSS') '.mat'];
 
 %call up a GUI for the user to define Soma ROI and regions to exclude
 if params.drawUserRois
@@ -104,11 +103,11 @@ for DMDix = nDMDs:-1:1
     if ~strcmpi(params.microscope, 'SLAP2')
         params.analyzeHz = 1/aData.frametime; %analyze conventional recordings at the acquisitoin framerate
     end
-    if isfield(aData, 'slap2') && isfield(aData.slap2, 'Z')
-        exptSummary.Z(DMDix) = aData.slap2.Z;
+    if isfield(aData, 'slap2') && isfield(aData.slap2, 'Z_depths')
+        exptSummary.Z(DMDix) = aData.slap2.Z_depths;
     else
         exptSummary.Z(DMDix) = nan;
-        warning('Alignment data missing Z-plane, likely out of date!!')
+        warning('Alignment data missing Z_depths, likely out of date!!')
     end
     clear aData
 
@@ -252,6 +251,7 @@ for DMDix = nDMDs:-1:1
 
     thetaf = getActImPeaks(actIM,params.peakth,somaMask,params.peakFuncOpt,params.actImHeteroscedasticNoise,params.peakBufferSize);
 
+    sources = struct('R', [], 'C', [], 'V', []);
     totalPix = sum(~isnan(actIM(:)) & ~somaMask(:));
     if totalPix == 0 | isempty(thetaf)
         k = 0;
@@ -314,6 +314,7 @@ for DMDix = nDMDs:-1:1
         exptSummary.E(:,DMDix) = E; %experiment data
     end
     exptSummary.selPix{DMDix} = any(selPix,3);
+    exptSummary.sources{DMDix} = sources;
     exptSummary.aData(:,DMDix) = alignData;
     exptSummary.userROIs{DMDix} = roiData;
     exptSummary.peaks{DMDix}= peaks;
@@ -331,13 +332,15 @@ params.endTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T'
 trialTable.source_extraction.analysis_params = params;
 saveStructToH5(trialTable, [dr filesep trialTablefn]);
 
+
 %prepare file for saving
 exptSummary.params = params;
 exptSummary.trialTable = trialTable;
 exptSummary.dr = dr;
 
 %save
-save(fnsave, 'exptSummary', "-v7.3");
+saveExperimentSummaryH5(fullfile(savedr, 'experiment_summary.h5'), exptSummary, trialTable);
+savePerTrialSummaryH5(fullfile(savedr, 'per_trial_summary.h5'), exptSummary, trialTable);
 
 disp('Done summarize_LoCo')
 end

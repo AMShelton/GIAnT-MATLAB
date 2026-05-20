@@ -11,6 +11,7 @@ for i = 1:numel(validTrials)
     CD = loadTrial(dr, fns{nLoad},fls(nLoad),els(nLoad),selPix,discardFrames{nLoad}, alignData{nLoad}, meanAligned(:,:,:,nLoad), motOutput(:,nLoad), roiData, params);
     E{nLoad}.ROIs = CD.ROIs; E{nLoad}.global = CD.global;
     E{nLoad}.discardFrames = CD.discardFrames;
+    E{nLoad}.frameLines = CD.frameLines;
     if i>1 %we process the previous trial after loading the next, to keep CPU usage up during loading
         [E{validTrials(i-1)}, B] = processResult(resultsFuture, E{validTrials(i-1)},params);
         if isempty(E{nLoad})
@@ -93,6 +94,7 @@ switch params.microscope
         dt = linerateHz/params.analyzeHz;
         frameLines = ceil(startLine:dt:endLine);
         nFrames= length(frameLines);
+        CD.frameLines = frameLines;
         selPx2D = any(selPix,3);
 
         %upsample motion
@@ -187,6 +189,7 @@ switch params.microscope
         IM = IM-reshape(baseline, [1 1 numChannels 1]); %subtract baseline
         nPx = size(IM,1)*size(IM,2);
         nFrames = size(IM,4);
+        CD.frameLines = 1:nFrames;
 
         %upsample motion
         viewC = (1:size(IM,2)) + motOutput(2);

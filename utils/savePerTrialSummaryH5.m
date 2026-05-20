@@ -1,0 +1,139 @@
+function savePerTrialSummaryH5(filename, exptSummary, trialTable)
+%SAVEPERTRIALSUMMARYH5 Write SILo per-trial summary to HDF5.
+%
+%   savePerTrialSummaryH5(FILENAME, EXPTSUMMARY, TRIALTABLE) writes the
+%   per-trial summary produced by SILo.m to disk using the per-path tree
+%   documented in the README.md "Experiment Summary" section:
+%       /Path{n}/sources/temporal/per_trial_SNR
+%       /Path{n}/sources/spatial/{per_trial_profiles, per_trial_coords}
+%       /Path{n}/visualizations/{per_trial_mean_im, per_trial_act_im}
+%
+%   The trial axis matches trial_table.h5 (all analysis trials). Trials
+%   without source extraction or alignment data are left as NaN in the
+%   corresponding arrays.
+
+if nargin < 3 || isempty(filename) || isempty(exptSummary) || isempty(trialTable)
+    error('savePerTrialSummaryH5:MissingInput', ...
+        'filename, exptSummary, and trialTable are required.');
+end
+
+nDMDs = size(trialTable.filename, 1);
+nTrials = size(trialTable.filename, 2);
+
+if ~isfield(exptSummary, 'E') || isempty(exptSummary.E)
+    exptSummary.E = cell(nTrials, nDMDs);
+elseif size(exptSummary.E, 1) < nTrials || size(exptSummary.E, 2) < nDMDs
+    exptSummary.E{nTrials, nDMDs} = [];
+end
+
+s = struct();
+for DMDix = 1:nDMDs
+    if isempty(exptSummary.meanIM{DMDix})
+        continue
+    end
+    pathName = sprintf('Path%d', DMDix);
+    s.(pathName) = buildPerTrialPathGroup(exptSummary, DMDix, nTrials);
+end
+
+saveStructToH5(s, filename);
+end
+
+
+function ps = buildPerTrialPathGroup(exptSummary, DMDix, nTrials)
+ps = struct();
+selPix = exptSummary.selPix{DMDix};
+[imRows, imCols] = size(selPix);
+
+ps.visualizations = buildPerTrialVisualizations(exptSummary, DMDix, nTrials);
+src = buildPerTrialSources(exptSummary, DMDix, nTrials, selPix, imRows, imCols);
+if ~isempty(fieldnames(src))
+    ps.sources = src;
+end
+end
+
+
+function vis = buildPerTrialVisualizations(exptSummary, DMDix, nTrials)
+vis = struct();
+
+meanAligned = exptSummary.perTrialMeanIMsAligned{DMDix};
+actAligned = exptSummary.perTrialActIMsAligned{DMDix};
+
+H = size(meanAligned, 1);
+W = size(meanAligned, 2);
+C = size(meanAligned, 3);
+
+% Always write the full trial_table trial axis. Invalid / skipped trials
+% (all-NaN actAligned from SILo) are left as all-NaN slices. meanAligned
+% is not preallocated in SILo, so skipped slots can be zero rather than NaN.
+perTrialMeanIm = nan(nTrials, C, 1, H, W, 'like', meanAligned);
+for tIx = 1:nTrials
+    if all(isnan(actAligned(:, :, 1, tIx)), 'all')
+        continue
+    end
+    perTrialMeanIm(tIx, :, 1, :, :) = permute(meanAligned(:, :, :, tIx), [3 1 2]);
+end
+vis.per_trial_mean_im = perTrialMeanIm;
+
+% actAligned is preallocated to nTrials with NaN for skipped trials in SILo.
+vis.per_trial_act_im = permute(actAligned, [4 3 1 2]);
+end
+
+
+function src = buildPerTrialSources(exptSummary, DMDix, nTrials, selPix, imRows, imCols)
+src = struct();
+
+nSources = 0;
+for tIx = 1:nTrials
+    E = exptSummary.E{tIx, DMDix};
+    if ~isempty(E) && isfield(E, 'footprints') && ~isempty(E.footprints)
+        nSources = size(E.footprints, 2);
+        break
+    end
+end
+if nSources == 0
+    return
+end
+
+selFlat = find(selPix);
+[rPix, cPix] = ind2sub([imRows, imCols], selFlat);
+
+perTrialProfiles = nan(nTrials, nSources, 1, imRows, imCols, 'single');
+perTrialCoords = nan(nTrials, nSources, 3);
+perTrialCoords(:, :, 1) = 0;
+perTrialSnr = nan(nTrials, nSources);
+
+for tIx = 1:nTrials
+    E = exptSummary.E{tIx, DMDix};
+    if isempty(E) || ~isfield(E, 'footprints') || isempty(E.footprints)
+        continue
+    end
+    H = E.footprints;
+    if size(H, 2) ~= nSources
+        continue
+    end
+
+    perTrialSnr(tIx, :) = double(E.SNR(:));
+
+    for sIx = 1:nSources
+        w = double(H(:, sIx));
+        w(isnan(w)) = 0;
+        img = zeros(imRows, imCols, 'single');
+        img(selPix) = w;
+        perTrialProfiles(tIx, sIx, 1, :, :) = img;
+        wsum = sum(w, 'omitnan');
+        if wsum > 0
+            perTrialCoords(tIx, sIx, 2) = sum(w .* cPix, 'omitnan') / wsum - 1;
+            perTrialCoords(tIx, sIx, 3) = sum(w .* rPix, 'omitnan') / wsum - 1;
+        end
+    end
+end
+
+sp = struct();
+sp.per_trial_profiles = perTrialProfiles;
+sp.per_trial_coords = perTrialCoords;
+src.spatial = sp;
+
+temp = struct();
+temp.per_trial_SNR = perTrialSnr;
+src.temporal = temp;
+end

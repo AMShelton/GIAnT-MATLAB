@@ -29,6 +29,12 @@ if isfield(s, 'slap2_info') && isstruct(s.slap2_info) && isfield(s.slap2_info, '
     end
     s.slap2_info.ref_stack = rs;
 end
+if isfield(s, 'slap2') && isstruct(s.slap2)
+    if isfield(s.slap2, 'Z') && ~isfield(s.slap2, 'Z_depths')
+        s.slap2.Z_depths = s.slap2.Z;
+        s.slap2 = rmfield(s.slap2, 'Z');
+    end
+end
 end
 
 

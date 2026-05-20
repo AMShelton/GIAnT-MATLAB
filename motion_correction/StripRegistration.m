@@ -244,10 +244,6 @@ for DSframe = 1:nDSframes
     motionDSc(DSframe) = initC+output(4);
     aErrorDS(DSframe) = output(1);
 
-    % motionDSr(DSframe) = motion(1);
-    % motionDSc(DSframe) = motion(2);
-    % aErrorDS(DSframe) = R;
-
     if sqrt((motionDSr(DSframe)/sz(1)).^2 + (motionDSc(DSframe)/sz(2)).^2) > 0.75^2
         Mfull = interp2(1:sz(2), 1:sz(1), M,viewC, viewR, 'linear', nan);
         [motion, R] = xcorr2_nans(Mfull,Ttmp,[initR;initC],50);
@@ -429,7 +425,7 @@ aData.motionC =  motionC;
 aData.motionR = motionR;
 aData.motionDSc = motionDSc;
 aData.motionDSr = motionDSr;
-%aData.aError = aError;
+aData.aError = aErrorDS; %not written to ALIGNMENTDATA.h5; use recNegErr for QC on disk
 %aData.aRankCorr = aRankCorr;
 aData.recNegErr = recNegErr;
 fnAdata = [fnstem '_ALIGNMENTDATA.h5'];

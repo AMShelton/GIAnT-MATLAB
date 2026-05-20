@@ -14,69 +14,68 @@ For SLAP2, analysis trials are the experimental trials if the data was collected
 For data not collected on SLAP2, the current GIAnT pipeline sets Epochs to be 1 and each file that is selected to be processed is an analysis trial. These analysis trials must be able to be aligned to one another.
 
 ## Trial Table
-Each experiment processed with GIAnT first gets a trial_table.h5 file that summarizes relevant file locations and analysis trial structures. The `slap2` group is only populated for SLAP2 experiments. The `motion_correction` and `source_extraction` groups are populated by downstream pipeline stages and will only be present once those stages have run. The structure of the trial_table is as below
+Each experiment processed with GIAnT first gets a trial_table.h5 file that summarizes relevant file locations and analysis trial structures. The `slap2` group is only populated for SLAP2 experiments. The `motion_correction` and `source_extraction` groups are populated by downstream pipeline stages and will only be present once those stages have run. The structure of the trial_table is as below (🗄️ file · 📁 group · 🔤 string · 🔢 integer · 📈 numeric · 🖼️ image · ☑️ bool):
 
 ```
-📦 trial_table.h5
- ├ 📄 datadr
- ├ 📄 savedr
- ├ 📄 filename
- ├ 📄 true_trial_ix
- ├ 📄 epoch
- ├ 📂 slap2
- |  ├ 📂 ref_stack
- |  |  └ 📂 Path{1,2}
- |  |     ├ 📄 IM
- |  |     ├ 📄 channels
- |  |     ├ 📄 Zs
- |  |     └ 📄 dmdPixel2SampleTransform
- |  ├ 📄 first_line
- |  ├ 📄 last_line
- |  ├ 📄 trial_start_time_inferred
- |  └ 📄 trial_end_time_from_pc
- ├ 📂 motion_correction
- |  ├ 📄 fn_reg_ds
- |  ├ 📄 fn_adata
- |  ├ 📄 fn_raw
- |  ├ 📄 registration_failed
- |  ├ 📄 first_line_original
- |  └ 📄 align_params
- └ 📂 source_extraction
-    ├ 📄 analysis_params
-    └ 📄 fn_raw
+🗄️ trial_table.h5
+ ├ 🔤 datadr
+ ├ 🔤 savedr
+ ├ 🔤 filename
+ ├ 🔢 true_trial_ix
+ ├ 🔢 epoch
+ ├ 📁 slap2
+ |  ├ 📁 ref_stack
+ |  |  └ 📁 Path{1,2}
+ |  |     ├ 🖼️ IM
+ |  |     ├ 🔢 channels
+ |  |     ├ 📈 Zs
+ |  |     └ 📈 dmdPixel2SampleTransform
+ |  ├ 🔢 first_line
+ |  ├ 🔢 last_line
+ |  ├ 🔢 trial_start_time_inferred
+ |  └ 🔢 trial_end_time_from_pc
+ ├ 📁 motion_correction
+ |  ├ 🔤 fn_reg_ds
+ |  ├ 🔤 fn_adata
+ |  ├ 🔤 fn_raw
+ |  ├ ☑️ registration_failed
+ |  ├ 🔢 first_line_original
+ |  └ 📁 align_params
+ └ 📁 source_extraction
+    ├ 📁 analysis_params
+    └ 🔤 fn_raw
 ```
 
 ## Alignment Data
 The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` that contains the alignment data for each trial. The structure of the alignment data is as below
 
 ```
-📦 <trial_stem>_ALIGNMENTDATA.h5
- ├ 📄 numChannels
- ├ 📄 meanIM
- ├ 📄 frametime
- ├ 📄 alignHz
- ├ 📄 motionDSc
- ├ 📄 motionDSr
- ├ 📄 motionDSz
- ├ 📄 recNegErr
- ├ 📄 motionC
- ├ 📄 motionR
- ├ 📄 motionZ
- ├ 📄 DSframes
- ├ 📄 registrationFailed
- └ 📂 slap2
-    ├ 📄 varFacDS
-    ├ 📄 aError
-    ├ 📄 Z
-    ├ 📄 cropRow
-    ├ 📄 cropCol
-    ├ 📄 viewC
-    ├ 📄 viewR
-    ├ 📄 trimRows
-    ├ 📄 trimCols
-    ├ 📄 onlineMotionXshift
-    ├ 📄 onlineMotionYshift
-    └ 📄 onlineMotionZshift
+🗄️ <trial_stem>_ALIGNMENTDATA.h5
+ ├ 📈 motionDSc
+ ├ 📈 motionDSr
+ ├ 📈 motionDSz
+ ├ 📈 motionC
+ ├ 📈 motionR
+ ├ 📈 motionZ
+ ├ 📈 recNegErr
+ ├ 🔢 DSframes
+ ├ 🖼️ meanIM
+ ├ ☑️ registrationFailed
+ ├ 📈 alignHz
+ ├ 🔢 numChannels
+ ├ 📈 frametime
+ └ 📁 slap2
+    ├ 📈 onlineMotionXshift
+    ├ 📈 onlineMotionYshift
+    ├ 📈 onlineMotionZshift
+    ├ 🖼️ varFacDS
+    ├ 📈 Z_depths
+    ├ 🔢 cropRow
+    ├ 🔢 cropCol
+    ├ 🖼️ viewC
+    ├ 🖼️ viewR
+    ├ 🔢 trimRows
+    └ 🔢 trimCols
 ```
 
 ## Manual Annotations
@@ -84,20 +83,20 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
 In our pipeline, users can manually annotate pixels to exclude from analysis or pixels that correspond to soma, whose signals should be extracted (the pipeline has typically been used for single-neuron simultaneous glutamate + calcium imaging experiments on the SLAP2). When ROIs are annotated (either in `annotateROIs.m` or `SILo.m`), information about the ROIs are saved in the `annotations.h5` file. The structure of that file is as below
 
 ```
-📦 annotations.h5
- └ 📂 Path{1,2}
-    ├ 📄 dr
-    ├ 📄 fn
-    ├ 📄 n_rois
-    └ 📂 roi_###
-       ├ 📄 type
-       ├ 📄 label
-       ├ 📄 mask
-       ├ 📄 position (polygon only)
-       ├ 📄 center (circle/ellipse)
-       ├ 📄 semi_axes (ellipse)
-       ├ 📄 rotation_angle (ellipse)
-       └ 📄 radius (circle)
+🗄️ annotations.h5
+ └ 📁 Path{1,2}
+    ├ 🔤 dr
+    ├ 🔤 fn
+    ├ 🔢 n_rois
+    └ 📁 roi_###
+       ├ 🔤 type
+       ├ 🔤 label
+       ├ 🖼️ mask
+       ├ 📈 position (polygon only)
+       ├ 📈 center (circle/ellipse)
+       ├ 📈 semi_axes (ellipse)
+       ├ 📈 rotation_angle (ellipse)
+       └ 📈 radius (circle)
 ```
 
 ## Experiment Summary
@@ -105,40 +104,56 @@ In our pipeline, users can manually annotate pixels to exclude from analysis or 
 The final step of the pipeline, source extraction (Source Identification by Activity Localization; SILo), outputs an `experiment_summary.h5` file which contains the extracted sources as well as other useful data about the experiment. The structure of that file is as follows
 
 ```
-📦 experiment_summary.h5
- ├ 📄 params
- └ 📂 Path{1,2}
-    ├ 📄 Z_depths (fastz x 1)
-    ├ 📂 frame_info
-    |  ├ 📄 offlineXshifts (total frames x 1)
-    |  ├ 📄 offlineYshifts (total frames x 1)
-    |  ├ 📄 offlineZshifts (total frames x 1)
-    |  ├ 📄 onlineXshifts (total frames x 1)
-    |  ├ 📄 onlineYshifts (total frames x 1)
-    |  ├ 📄 onlineZshifts (total frames x 1)
-    |  ├ 📄 trial_num_frames (trials x 1)
-    |  ├ 📄 frame_line_idxs (total frames x 1)
-    |  └ 📄 discard_frames (total frames x 1)
-    ├ 📂 visualizations
-    |  ├ 📄 mean_im (channels x fastz x rows x cols)
-    |  └ 📄 act_im (fastz x rows x cols)
-    ├ 📂 global
-    |  └ 📄 F (channels x total frames)
-    ├ 📂 user_rois
-    |  ├ 📄 labels (rois x 1)
-    |  ├ 📄 mask (rois x fastz x rows x cols)
-    |  ├ 📄 Fsvd (rois x channels x total frames)
-    |  └ 📄 F (rois x channels x total frames)
-    └ 📂 sources
-       ├ 📂 spatial
-       |  ├ 📄 profiles (sources x fastz x rows x cols)
-       |  └ 📄 coords (sources x 3 [z_loc, x_loc, y_loc])
-       └ 📂 temporal
-          ├ 📄 dF_ls (sources x channels x total frames)
-          ├ 📄 dF_denoised (sources x channels x total frames)
-          ├ 📄 events (sources x channels x total frames)
-          ├ 📄 F0 (sources x channels x total frames)
-          └ 📄 SNR (sources x 1)
+🗄️ experiment_summary.h5
+ ├ 📁 params
+ └ 📁 Path{1,2}
+    ├ 📈 Z_depths (fastz x 1)
+    ├ 📁 sources
+    |  ├ 📁 temporal
+    |  |  ├ 📈 dF_ls (sources x channels x total frames)
+    |  |  ├ 📈 dF_denoised (sources x channels x total frames)
+    |  |  ├ 📈 events (sources x channels x total frames)
+    |  |  ├ 📈 F0 (sources x channels x total frames)
+    |  |  └ 📈 SNR (sources x 1)
+    |  └ 📁 spatial
+    |     ├ 🖼️ profiles (sources x fastz x rows x cols)
+    |     └ 📈 coords (sources x 3 [z_loc, x_loc, y_loc])
+    ├ 📁 user_rois
+    |  ├ 🔤 labels (rois x 1)
+    |  ├ 🖼️ mask (rois x fastz x rows x cols)
+    |  ├ 📈 Fsvd (rois x channels x total frames)
+    |  └ 📈 F (rois x channels x total frames)
+    ├ 📁 visualizations
+    |  ├ 🖼️ mean_im (channels x fastz x rows x cols)
+    |  └ 🖼️ act_im (fastz x rows x cols)
+    ├ 📁 global
+    |  └ 📈 F (channels x total frames)
+    └ 📁 frame_info
+       ├ 📈 offlineXshifts (total frames x 1)
+       ├ 📈 offlineYshifts (total frames x 1)
+       ├ 📈 offlineZshifts (total frames x 1)
+       ├ 📈 onlineXshifts (total frames x 1)
+       ├ 📈 onlineYshifts (total frames x 1)
+       ├ 📈 onlineZshifts (total frames x 1)
+       ├ 🔢 trial_num_frames (trials x 1)
+       ├ 🔢 frame_line_idxs (total frames x 1)
+       └ ☑️ discard_frames (total frames x 1)
+```
+
+A summary file of per-trial data is also saved as `per_trial_summary.h5` for any fields that may vary across analysis trials. The structure of that file is as follows
+
+```
+🗄️ per_trial_summary.h5
+ └ 📁 Path{1,2}
+    ├ 📁 sources
+    |  ├ 📁 temporal
+    |  |  └ 📈 per_trial_SNR (trials x sources)
+    |  └ 📁 spatial
+    |     ├ 🖼️ per_trial_profiles (trials x sources x fastz x rows x cols)
+    |     └ 📈 per_trial_coords (trials x sources x 3 [z_loc, x_loc, y_loc])
+    └ 📁 visualizations
+       ├ 🖼️ per_trial_mean_im (trials x channels x fastz x rows x cols)
+       └ 🖼️ per_trial_act_im (trials x fastz x rows x cols)
 ```
 
 
@@ -186,7 +201,7 @@ Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripReg
 | `motionDSc` | 1 x nDSframes | numeric | Inferred column shift per downsampled frame |
 | `motionDSr` | 1 x nDSframes | numeric | Inferred row shift per downsampled frame |
 | `motionDSz` | 1 x nDSframes | numeric | (optional) Inferred Z shift per downsampled frame; written only when 3D alignment was performed |
-| `recNegErr` | 1 x nDSframes | numeric | Per-frame reconstruction error used for motion censoring |
+| `recNegErr` | 1 x nDSframes | numeric | Per-frame reconstruction error; standard alignment QC metric and used for motion censoring |
 | `motionC` | 1 x nFrames | numeric | Column shift upsampled to raw frame rate (Bergamo only) |
 | `motionR` | 1 x nFrames | numeric | Row shift upsampled to raw frame rate (Bergamo only) |
 | `motionZ` | 1 x nFrames | numeric | (optional) Z shift upsampled to raw frame rate; written only when 3D alignment was performed |
@@ -194,8 +209,7 @@ Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripReg
 | `registrationFailed` | 1 x 1 | bool | Whether registration failed for this trial (SLAP2 only) |
 | `slap2` | — | group | Only saved for SLAP2 experiments |
 | `slap2/varFacDS` | rows x cols x nDSframes | numeric | Variance factor; multiply pixel intensity to get a value proportional to its variance |
-| `slap2/aError` | 1 x nDSframes | numeric | Alignment error (1 − corrCoeff²) per downsampled frame |
-| `slap2/Z` | 1 x 1 | numeric | Imaged Z position from microscope metadata |
+| `slap2/Z_depths` | fastz x 1 | numeric | Imaged Z depths from microscope metadata |
 | `slap2/cropRow` | 1 x 1 | integer | Row offset to add to ROIs to index into original recording |
 | `slap2/cropCol` | 1 x 1 | integer | Column offset to add to ROIs to index into original recording |
 | `slap2/viewC` | (rows+2·maxshift) x (cols+2·maxshift) | numeric | Column interpolation grid for remapping into saved tiff space |
@@ -228,22 +242,24 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 
 ### `experiment_summary.h5`
 
-Field reference for the layout in the schematic tree above (per-path HDF5 groups). `SILo.m` currently writes `ExperimentSummary-*.mat` in `source_extraction/`; an HDF5 export is expected to mirror these paths. Dimensions use one `total frames` axis for all trials from that path stitched in time.
+`SILo.m` writes `experiment_summary.h5` in `source_extraction/`. Dimensions use one `total frames` axis for all trials from that path stitched in time.
+
+**Indexing conventions.** Pixel/plane coordinates in `sources/spatial/coords` are written in **0-indexed (HDF5/Python)** convention — `z_loc` is the 0-based index into the `fastz` axis of `profiles`, and `x_loc`/`y_loc` are pixel centroids in `[0, dim-1]`. A few fields are kept **1-indexed** to retain SLAP2 data conventions.
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
-| `params` | — | struct | Analysis parameters (`SILo` `params` struct) |
+| `params` | — | struct | Analysis parameters (`SILo` `params` struct). `params/activityChannel` is **1-indexed** into the recording's `numChannels` channels — use it to pick the glutamate channel from any `channels x …` dataset in this file (e.g., `global/F`, `sources/temporal/dF_ls`) |
 | `Path{n}` | — | group | One group per imaging path |
 | `Path{n}/Z_depths` | fastz x 1 | numeric | Z depths per imaging plane (SLAP2 only) |
 | `Path{n}/frame_info` | — | group | Trial and frame bookkeeping for stitched time series |
 | `Path{n}/frame_info/offlineXshifts` | total frames x 1 | numeric | Offline registration X shift per frame |
 | `Path{n}/frame_info/offlineYshifts` | total frames x 1 | numeric | Offline registration Y shift per frame |
-| `Path{n}/frame_info/offlineZshifts` | total frames x 1 | numeric | Offline registration Z shift per frame |
+| `Path{n}/frame_info/offlineZshifts` | total frames x 1 | numeric | (optional) Offline registration Z shift per frame; written only when 3D alignment was performed |
 | `Path{n}/frame_info/onlineXshifts` | total frames x 1 | numeric | (SLAP2 only) online X shift per frame |
 | `Path{n}/frame_info/onlineYshifts` | total frames x 1 | numeric | (SLAP2 only) online Y shift per frame |
 | `Path{n}/frame_info/onlineZshifts` | total frames x 1 | numeric | (SLAP2 only) online Z shift per frame |
 | `Path{n}/frame_info/trial_num_frames` | trials x 1 | integer | Number of frames contributed by each analysis trial |
-| `Path{n}/frame_info/frame_line_idxs` | total frames x 1 | integer | Raw line (SLAP2) or frame (other microscopes) index for each frame in the stitched series |
+| `Path{n}/frame_info/frame_line_idxs` | total frames x 1 | integer | Raw line (SLAP2) or frame (other microscopes) index for each frame in the stitched series. **1-indexed** to keep SLAP2 line indexing convention |
 | `Path{n}/frame_info/discard_frames` | total frames x 1 | bool or uint8 | Frame excluded from analysis (e.g., motion censoring) |
 | `Path{n}/visualizations` | — | group | Static images for QC and publication |
 | `Path{n}/visualizations/mean_im` | channels x fastz x rows x cols | numeric | Mean registered image per channel / Z slice |
@@ -257,11 +273,30 @@ Field reference for the layout in the schematic tree above (per-path HDF5 groups
 | `Path{n}/user_rois/F` | rois x channels x total frames | numeric | Raw or baseline-corrected ROI fluorescence |
 | `Path{n}/sources` | — | group | SILo-detected sources |
 | `Path{n}/sources/spatial` | — | group | Spatial fingerprints and locations |
-| `Path{n}/sources/spatial/profiles` | sources x fastz x rows x cols | numeric | Spatial component / pixel weights per source |
-| `Path{n}/sources/spatial/coords` | sources x 3 | numeric | Source centers per row: `[z_loc, x_loc, y_loc]` |
+| `Path{n}/sources/spatial/profiles` | sources x fastz x rows x cols | numeric | Spatial component / pixel weights per source, averaged across trials with footprints |
+| `Path{n}/sources/spatial/coords` | sources x 3 | numeric | Source centers per row: `[z_loc, x_loc, y_loc]`, **0-indexed**, computed as the footprint-weighted centroid of the averaged `profiles` |
 | `Path{n}/sources/temporal` | — | group | Frame-by-frame source activity |
 | `Path{n}/sources/temporal/dF_ls` | sources x channels x total frames | numeric | Least-squares ΔF (absolute or scaled) |
 | `Path{n}/sources/temporal/dF_denoised` | sources x channels x total frames | numeric | Denoised ΔF |
 | `Path{n}/sources/temporal/events` | sources x channels x total frames | numeric | Deconvolved source events |
 | `Path{n}/sources/temporal/F0` | sources x channels x total frames | numeric | Baseline estimate used for normalization |
-| `Path{n}/sources/temporal/SNR` | sources x 1 | numeric | Signal-to-noise ratio metric |
+| `Path{n}/sources/temporal/SNR` | sources x 1 | numeric | (optional) Signal-to-noise ratio metric; only written when extraction emits per-source SNR |
+
+### `per_trial_summary.h5`
+
+`SILo.m` writes `per_trial_summary.h5` alongside `experiment_summary.h5` in `source_extraction/`. The trial axis matches `trial_table.h5` (all analysis trials); trials without alignment or source-extraction data are left as NaN in the corresponding slices.
+
+**Indexing conventions.** Same as `experiment_summary.h5`: `sources/spatial/per_trial_coords` uses **0-indexed** pixel/plane coordinates (`z_loc` is the 0-based `fastz` index, currently always `0`).
+
+| Field | Size | Data type | Description |
+| --- | --- | --- | --- |
+| `Path{n}` | — | group | One group per imaging path |
+| `Path{n}/visualizations` | — | group | Per-trial static images for QC |
+| `Path{n}/visualizations/per_trial_mean_im` | trials x channels x fastz x rows x cols | numeric | Trial-aligned mean registered image per channel / Z slice |
+| `Path{n}/visualizations/per_trial_act_im` | trials x fastz x rows x cols | numeric | Trial-aligned activity / localization summary image |
+| `Path{n}/sources` | — | group | Per-trial SILo source data (when sources were extracted) |
+| `Path{n}/sources/spatial` | — | group | Per-trial spatial fingerprints and locations |
+| `Path{n}/sources/spatial/per_trial_profiles` | trials x sources x fastz x rows x cols | numeric | Spatial component / pixel weights per source per trial |
+| `Path{n}/sources/spatial/per_trial_coords` | trials x sources x 3 | numeric | Source centers per trial: `[z_loc, x_loc, y_loc]`, **0-indexed** (same convention as `experiment_summary.h5` `coords`) |
+| `Path{n}/sources/temporal` | — | group | Per-trial source metrics |
+| `Path{n}/sources/temporal/per_trial_SNR` | trials x sources | numeric | Per-source SNR for each analysis trial |
