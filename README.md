@@ -34,7 +34,15 @@ For SLAP2, analysis trials are the experimental trials if the data was collected
 
 For data not collected on SLAP2, the current GIAnT pipeline sets Epochs to be 1 and each file that is selected to be processed is an analysis trial. These analysis trials must be able to be aligned to one another.
 
-## Trial Table
+## Pipeline Outputs
+
+### Reading H5 outside MATLAB
+
+GIAnT writes H5 from MATLAB. **Dimension tuples in this README match MATLAB `size()`** for each dataset (column-major in memory).
+
+`h5py` and other non-MATLAB readers may assume a row-major order for the data. When reading data using Python or other languages, data axes may need to be permuted to match the axis orders listed here.
+
+### Trial Table
 Each experiment processed with GIAnT first gets a trial_table.h5 file that summarizes relevant file locations and analysis trial structures. The `slap2` group is only populated for SLAP2 experiments. The `motion_correction` and `source_extraction` groups are populated by downstream pipeline stages and will only be present once those stages have run. The structure of the trial_table is as below (🗄️ file · 📁 group · 🔤 string · 🔢 integer · 📈 numeric · 🖼️ image · ☑️ bool):
 
 ```
@@ -67,7 +75,7 @@ Each experiment processed with GIAnT first gets a trial_table.h5 file that summa
     └ 🔤 fn_raw
 ```
 
-## Alignment Data
+### Alignment Data
 The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` that contains the alignment data for each trial. The structure of the alignment data is as below
 
 ```
@@ -99,7 +107,7 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
     └ 🔢 trimCols
 ```
 
-## Manual Annotations
+### Manual Annotations
 
 In our pipeline, users can manually annotate pixels to exclude from analysis or pixels that correspond to soma, whose signals should be extracted (the pipeline has typically been used for single-neuron simultaneous glutamate + calcium imaging experiments on the SLAP2). When ROIs are annotated (either in `annotateROIs.m` or `SILo.m`), information about the ROIs are saved in the `annotations.h5` file. The structure of that file is as below
 
@@ -121,7 +129,7 @@ In our pipeline, users can manually annotate pixels to exclude from analysis or 
        └ 📈 radius (circle)
 ```
 
-## Experiment Summary
+### Experiment Summary
 
 The final step of the pipeline, source extraction (Source Identification by Activity Localization; SILo), outputs an `experiment_summary.h5` file which contains the extracted sources as well as other useful data about the experiment. The structure of that file is as follows
 

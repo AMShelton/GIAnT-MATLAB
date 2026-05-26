@@ -10,6 +10,10 @@ function saveStructToH5(s, filename)
 %
 %   The destination file is overwritten if it already exists; HDF5 datasets
 %   cannot be redefined in place so a fresh file is required.
+%
+%   Dataset sizes match MATLAB size(val). Non-MATLAB readers (e.g. h5py) may
+%   report a different axis order for the same data; see README.md
+%   "Reading H5 outside MATLAB".
 
 if nargin < 2 || isempty(filename)
     error('saveStructToH5:MissingFilename', 'A destination filename must be provided.');
