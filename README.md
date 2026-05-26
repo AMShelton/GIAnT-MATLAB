@@ -52,6 +52,7 @@ Each experiment processed with GIAnT first gets a trial_table.h5 file that summa
  ├ 🔤 filename
  ├ 🔢 true_trial_ix
  ├ 🔢 epoch
+ ├ ☑️ row_major
  ├ 📁 slap2
  |  ├ 📁 ref_stack
  |  |  └ 📁 Path{1,2}
@@ -80,6 +81,7 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
 
 ```
 🗄️ <trial_stem>_ALIGNMENTDATA.h5
+ ├ ☑️ row_major
  ├ 📈 motionDSc
  ├ 📈 motionDSr
  ├ 📈 motionDSz
@@ -113,6 +115,7 @@ In our pipeline, users can manually annotate pixels to exclude from analysis or 
 
 ```
 🗄️ annotations.h5
+ ├ ☑️ row_major
  ├ ☑️ coords_zero_indexed
  └ 📁 Path{1,2}
     ├ 🔤 dr
@@ -135,6 +138,7 @@ The final step of the pipeline, source extraction (Source Identification by Acti
 
 ```
 🗄️ experiment_summary.h5
+ ├ ☑️ row_major
  ├ 📁 params
  └ 📁 Path{1,2}
     ├ 📈 Z_depths (fastz x 1)
@@ -175,6 +179,7 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 
 ```
 🗄️ per_trial_summary.h5
+ ├ ☑️ row_major
  └ 📁 Path{1,2}
     ├ 📁 sources
     |  ├ 📁 temporal
@@ -196,6 +201,7 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 | `datadr` | 1 x 1 | string | Data directory location |
 | `savedr` | 1 x 1 | string | Results directory location |
 | `filename` | nPaths x total trials | string (ragged) | Relative file name from `datadr` |
@@ -222,6 +228,10 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 | `source_extraction/fn_raw` | nPaths x total trials | string | Raw file source extraction reads from per trial |
 
 ### `<trial_stem>_ALIGNMENTDATA.h5`
+
+| Field | Size | Data type | Description |
+| --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 
 Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripRegistration.m` (Bergamo); `DSframes`/`registrationFailed` by `MultiRoiRegistration.m` (SLAP2). The `slap2` group is only populated for SLAP2 experiments.
 
@@ -262,6 +272,7 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 | `coords_zero_indexed` | 1 x 1 | uint8 | When `1`, `position`/`center` are 0-indexed `[y_loc, x_loc]`; when absent or `0`, legacy 1-indexed `[x, y]` |
 | `Path{n}` | — | group | One group per imaging path in trial-table order |
 | `Path{n}/dr` | 1 x nChars | uint16 | Motion-correction directory used while drawing these ROIs |
@@ -284,6 +295,7 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 | `params` | — | struct | Analysis parameters (`SILo` `params` struct). `params/activityChannel` is **1-indexed** into the recording's `numChannels` channels — use it to pick the glutamate channel from any `channels x …` dataset in this file (e.g., `global/F`, `sources/temporal/dF_ls`) |
 | `Path{n}` | — | group | One group per imaging path |
 | `Path{n}/Z_depths` | fastz x 1 | numeric | Z depths per imaging plane (SLAP2 only) |
@@ -327,6 +339,7 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 | `Path{n}` | — | group | One group per imaging path |
 | `Path{n}/visualizations` | — | group | Per-trial static images for QC |
 | `Path{n}/visualizations/per_trial_mean_im` | trials x channels x fastz x rows x cols | numeric | Trial-aligned mean registered image per channel / Z slice |

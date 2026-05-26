@@ -2,6 +2,7 @@ function saveAnnotationsH5(filename, ROIs)
 %SAVEANNOTATIONSH5 Save manual ROI annotations to an HDF5 file.
 %
 % File schema:
+%   /row_major (uint8; 0 = column-major / MATLAB size() layout)
 %   /coords_zero_indexed (uint8; 1 = position/center are 0-indexed [y_loc, x_loc])
 %   /Path1/dr
 %   /Path1/fn
@@ -22,6 +23,8 @@ if exist(filename, 'file')
     delete(filename);
 end
 
+h5create(filename, '/row_major', [1 1], 'Datatype', 'uint8');
+h5write(filename, '/row_major', uint8(0));
 writeDataset(filename, '/coords_zero_indexed', uint8(1));
 
 for DMDix = 1:numel(ROIs)

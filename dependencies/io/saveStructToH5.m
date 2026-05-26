@@ -11,8 +11,8 @@ function saveStructToH5(s, filename)
 %   The destination file is overwritten if it already exists; HDF5 datasets
 %   cannot be redefined in place so a fresh file is required.
 %
-%   Dataset sizes match MATLAB size(val). Non-MATLAB readers (e.g. h5py) may
-%   report a different axis order for the same data; see README.md
+%   Dataset sizes match MATLAB size(val). The file includes /row_major
+%   (uint8): 0 = column-major (MATLAB layout). See README.md
 %   "Reading H5 outside MATLAB".
 
 if nargin < 2 || isempty(filename)
@@ -27,6 +27,8 @@ if exist(filename, 'file')
 end
 
 writeGroup(filename, '', s);
+h5create(filename, '/row_major', [1 1], 'Datatype', 'uint8');
+h5write(filename, '/row_major', uint8(0));
 end
 
 
