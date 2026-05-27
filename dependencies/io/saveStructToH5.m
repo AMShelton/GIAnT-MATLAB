@@ -27,7 +27,9 @@ if exist(filename, 'file')
 end
 
 writeGroup(filename, '', s);
-h5create(filename, '/row_major', [1 1], 'Datatype', 'uint8');
+if ~any(strcmp({h5info(filename).Datasets.Name}, 'row_major'))
+    h5create(filename, '/row_major', [1 1], 'Datatype', 'uint8');
+end
 h5write(filename, '/row_major', uint8(0));
 end
 
