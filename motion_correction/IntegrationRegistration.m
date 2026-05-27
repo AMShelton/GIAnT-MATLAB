@@ -1,9 +1,9 @@
-function IntegrationRegistration(fullPathToTrialTable, paramsIn)
+function params = IntegrationRegistration(fullPathToTrialTable, paramsIn)
 
 if ~nargin
-    [fn, dr] =  uigetfile('*.mat', 'Select a trialTable file', '*trialTable*.mat' );
+    [fn, trialtabledr] = uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5');
 else
-    [dr, fn, ext] = fileparts(fullPathToTrialTable); fn = [fn ext]; 
+    [trialtabledr, fn, ext] = fileparts(fullPathToTrialTable); fn = [fn ext];
 end
 
 %PARAMETER SETTING
@@ -16,7 +16,12 @@ end
 params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
 %load the trial Table, which sets correspondences between the two DMDs
-load([dr filesep 'trialTable.mat'], 'trialTable');
+trialTable = loadStructFromH5([trialtabledr filesep fn]);
+
+mocosavedr = fullfile(trialTable.savedr, 'motion_correction');
+if ~exist(mocosavedr, 'dir')
+    mkdir(mocosavedr)
+end
 
 %% set up parallelization
 p = gcp('nocreate'); % If no pool, do not create new one.
@@ -36,53 +41,79 @@ if poolsize~=nWorkers
 end
 
 %% make look up table for each DMD
+lookupFile = fullfile(mocosavedr, 'integrationRegLookupTable.h5');
 
-trialTable.lookupFile = [dr filesep 'integrationRegLookupTable.mat'];
-
-% make lookup table if it doesn't exist
-if ~exist(trialTable.lookupFile)
-    lookupTable = makeRefLookupTable(dr,trialTable,params);
-
-else % load user selected lookup table
+if ~exist(lookupFile, 'file')
+    lookupTable = makeRefLookupTable(trialTable.datadr, trialTable, params, lookupFile);
+else
     fprintf("Loading lookup table... "); tic;
-    load(trialTable.lookupFile, 'lookupTable');
-    fprintf('done, took %f sec\n',toc);
+    lookupTable = loadLookupTableH5(lookupFile);
+    fprintf('done, took %f sec\n', toc);
 end
 
 %% conduct alignment in parallel
-nDMDs = size(trialTable.filename,1);
+nDMDs = size(trialTable.filename, 1);
+nTrials = size(trialTable.true_trial_ix, 2);
 
-[dixs,fixs] = ndgrid(1:nDMDs,1:length(trialTable.trueTrialIx));
-if params.saveTiffs; fnRegDS = cell(nDMDs,length(trialTable.trueTrialIx)); end
-fnAdata = cell(nDMDs,length(trialTable.trueTrialIx));
-parfor p_ix = 1:numel(fixs)
-    f_ix = fixs(p_ix); DMD_ix = dixs(p_ix);
-    [fnRegDS{p_ix}, fnAdata{p_ix}]= alignIntegrationAsync(dr, trialTable, lookupTable, params, f_ix, DMD_ix);
+if ~isfield(trialTable, 'motion_correction') || isempty(trialTable.motion_correction)
+    trialTable.motion_correction = struct();
+end
+if ~isfield(trialTable.motion_correction, 'integration') || isempty(trialTable.motion_correction.integration)
+    trialTable.motion_correction.integration = struct();
+end
+trialTable.motion_correction.integration.registration_failed = false(nDMDs, nTrials);
+
+for DMD_ix = 1:nDMDs
+    fnAdata = cell(1, nTrials);
+    regFail = false(1, nTrials);
+    if params.saveTiffs
+        fnRegDS = cell(1, nTrials);
+    end
+    if nWorkers > 1
+        parfor f_ix = 1:nTrials
+            if params.saveTiffs
+                [fnRegDS{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
+            else
+                [~, fnAdata{f_ix}, regFail(f_ix)] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
+            end
+        end
+    else
+        for f_ix = 1:nTrials
+            if params.saveTiffs
+                [fnRegDS{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
+            else
+                [~, fnAdata{f_ix}, regFail(f_ix)] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
+            end
+        end
+    end
+    trialTable.motion_correction.integration.registration_failed(DMD_ix, :) = regFail;
+    if params.saveTiffs
+        trialTable.motion_correction.integration.fn_reg_ds(DMD_ix, :) = fnRegDS;
+    end
+    trialTable.motion_correction.integration.fn_adata(DMD_ix, :) = fnAdata;
 end
 
 params.endTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
-if params.saveTiffs; trialTable.fnRegDSInt = fnRegDS; end
-trialTable.fnAdataInt = fnAdata;
-trialTable.alignParamsInt = params;
-save([dr filesep fn], "trialTable")
+trialTable.motion_correction.integration.align_params = params;
+saveStructToH5(trialTable, [trialtabledr filesep fn]);
 
 disp('done integrationRegistration.')
 end
 
-function lookupTable = makeRefLookupTable(dr, trialTable, params)
+function lookupTable = makeRefLookupTable(datadr, trialTable, params, lookupFile)
 nDMDs = size(trialTable.filename,1);
 for DMDix = nDMDs:-1:1
     [~,n] = fileparts(trialTable.filename{DMDix,1});
     n_base = regexprep(n,'-TRIAL[0-9]+','','ignorecase');
     n_base = regexprep(n_base,'-CYCLE[0-9]+','','ignorecase');
-    metaDataFileName = fullfile(dr, [n_base '.meta']);
+    metaDataFileName = fullfile(datadr, [n_base '.meta']);
     mustBeFile(metaDataFileName);
     metaData = load(metaDataFileName, '-mat');
 
-    list = dir([dr filesep '**' filesep '*DMD' int2str(DMDix) '_CONFIG2-REFERENCE*']);
+    list = dir([datadr filesep '**' filesep '*DMD' int2str(DMDix) '_CONFIG2-REFERENCE*']);
     if isempty(list)
-        list = dir([dr filesep '**' filesep '*DMD' int2str(DMDix) '*-REFERENCE*']);
+        list = dir([datadr filesep '**' filesep '*DMD' int2str(DMDix) '*-REFERENCE*']);
     end
     ReferenceStack_ = slap2.gui.refstack.ReferenceStack.loadTif(fullfile(list(1).folder, list(1).name));
     numChannelsRefStack = numel(ReferenceStack_.data);
@@ -243,22 +274,24 @@ lookupTable.zPre = zPre;
 lookupTable.zPost = zPost;
 lookupTable.fastZ2RefZ = fastZ2RefZ;
 
-save(trialTable.lookupFile,'lookupTable','-v7.3');
+saveLookupTableH5(lookupTable, lookupFile);
 
 end
 
 
-function [fnwrite, fnAdata] = alignIntegrationAsync(dr, trialTable, lookupTable, params, f_ix, DMD_ix)
+function [fnwrite, fnAdata, registrationFailed] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix)
 
-fn = trialTable.filename{DMD_ix,f_ix};
-fnW = ['E' int2str(trialTable.epoch(f_ix)) 'T' int2str(f_ix) 'DMD' int2str(DMD_ix) '_INTEGRATION'];
-firstLine = trialTable.firstLine(DMD_ix,f_ix);
-lastLine = trialTable.lastLine(DMD_ix, f_ix);
+mocosavedr = fullfile(trialTable.savedr, 'motion_correction');
+fn = trialTable.filename{DMD_ix, f_ix};
+fnW = ['E' int2str(trialTable.epoch(DMD_ix, f_ix)) 'T' int2str(f_ix) 'DMD' int2str(DMD_ix) '_INTEGRATION'];
+firstLine = trialTable.slap2_info.first_line(DMD_ix, f_ix);
+lastLine = trialTable.slap2_info.last_line(DMD_ix, f_ix);
 aData = params;
+registrationFailed = false;
 
-disp(['Aligning: ' [dr filesep fn]])
+disp(['Aligning: ' fnW ' of ' [trialTable.datadr filesep fn]])
 
-hSlap2DataFile = slap2.Slap2DataFile([dr filesep fn]);
+hSlap2DataFile = slap2.Slap2DataFile([trialTable.datadr filesep fn]);
 if isprop(hSlap2DataFile, 'hDataFile')
     hLowLevelDataFile = hSlap2DataFile.hDataFile;
 else
@@ -281,21 +314,27 @@ if dt < numLinesPerCycle
 end
 
 if params.saveTiffs
-    fnwrite = [dr filesep fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
+    fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
     if params.efficientTiffSave
         fnwriteTmp = [params.tempFileDir filesep int2str(round(rand(1)*10000)) '.tif'];
     else
-        fnwriteTmp = fnwrite;
+        fnwriteTmp = [mocosavedr filesep fnwrite];
     end
 else
     fnwrite = 'no tiff saved';
 end
 
-fnAdata = [dr filesep fnW '_ALIGNMENTDATA.mat'];
+fnAdata = [fnW '_ALIGNMENTDATA.h5'];
 
-if ~params.overwriteExisting && exist(fnAdata, 'file') % && exist(fnwrite, 'file')
-    disp([fn ' is already aligned; skipping' newline 'To force realign, pass TRUE as second argument']);
-    return
+if ~params.overwriteExisting
+    skipTrial = exist([mocosavedr filesep fnAdata], 'file');
+    if params.saveTiffs
+        skipTrial = skipTrial && exist([mocosavedr filesep fnwrite], 'file');
+    end
+    if skipTrial
+        disp([fnW ' of ' fn ' is already aligned; skipping' newline 'To force realign, set overwriteExisting to true']);
+        return
+    end
 end
 
 DSframes = ceil(firstLine:dt:lastLine);
@@ -352,7 +391,6 @@ medianIndices = cellfun(@(x) x(round(length(x)/2)), splitPixels);
 % Convert linear indices to row and column coordinates
 [spRows, spCols, spPlanes] = ind2sub([dmdPixelsPerColumn, dmdPixelsPerRow, numFastZs], medianIndices);
 
-registrationFailed = false;
 fprintf("Inferring motion...\n")
 tic
 try
@@ -473,15 +511,20 @@ end
 catch ME
     disp(ME);
     registrationFailed = true;
+    if params.saveTiffs
+        try
+            fTIF.close;
+        catch
+        end
+    end
 end
 
-if params.saveTiffs
+if params.saveTiffs && ~registrationFailed
     fTIF.close;
 end
 
-
 if registrationFailed
-    disp(['REGISTRATION ERROR OCCURRED FOR FILE: ' fn newline 'YOU MAY NEED TO QC THIS FILE!' newline 'CONTINUING...'])
+    disp(['REGISTRATION ERROR OCCURRED FOR FILE: ' fnW ' of ' fn newline 'YOU MAY NEED TO QC THIS FILE!' newline 'CONTINUING...'])
     return
 end
 
@@ -497,19 +540,35 @@ disp(['aligning done - took ' num2str(toc) ' sec'])
 aData.numChannels = numChannels;
 aData.frametime = 1/aData.alignHz;
 aData.DSframes = DSframes;
-aData.motionDSc = motionDS(:,2);
-aData.motionDSr = motionDS(:,1);
-aData.motionDSz = motionDS(:,3);
+
+aData.motionDSc = -motionDS(:,2);
+aData.motionDSr = -motionDS(:,1);
+aData.motionDSz = -motionDS(:,3);
 aData.brightnessDS = brightnessDS;
 aData.logLikelihoodDS = loglikelihoodDS;
 
 disp('Getting online motion correction offsets')
 [aData.onlineXshift, aData.onlineYshift, aData.onlineZshift] = getOnlineMotion(hLowLevelDataFile, DSframes);
 
-save(fnAdata, 'aData');
+toSave = struct();
+toSave.numChannels = aData.numChannels;
+toSave.frametime = aData.frametime;
+toSave.alignHz = aData.alignHz;
+toSave.DSframes = aData.DSframes;
+toSave.motionDSc = aData.motionDSc;
+toSave.motionDSr = aData.motionDSr;
+toSave.motionDSz = aData.motionDSz;
+toSave.brightnessDS = aData.brightnessDS;
+toSave.logLikelihoodDS = aData.logLikelihoodDS;
+toSave.registrationFailed = registrationFailed;
+toSave.slap2 = struct();
+toSave.slap2.onlineMotionXshift = aData.onlineXshift;
+toSave.slap2.onlineMotionYshift = aData.onlineYshift;
+toSave.slap2.onlineMotionZshift = aData.onlineZshift;
+saveStructToH5(toSave, [mocosavedr filesep fnAdata]);
 
 if params.saveTiffs && params.efficientTiffSave
-    copyfile(fnwriteTmp,fnwrite);
+    copyfile(fnwriteTmp, [mocosavedr filesep fnwrite]);
     delete(fnwriteTmp);
 end
 
