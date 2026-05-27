@@ -195,6 +195,26 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 ```
 
 
+### Integration Registration Lookup Table (intermediate file)
+
+`IntegrationRegistration` builds this file once per experiment under `motion_correction/integrationRegLookupTable.h5` and reuses it on subsequent runs.
+
+```
+🗄️ integrationRegLookupTable.h5
+ ├ 🔢 xPre
+ ├ 🔢 xPost
+ ├ 🔢 yPre
+ ├ 🔢 yPost
+ ├ ☑️ row_major
+ └ 📁 Path{1,2}
+    ├ 📈 likelihood_means (Y x X x Z x C x nSP)
+    ├ 🔢 allSuperPixelIDs (nSP x 1)
+    ├ 🔢 sparseMaskInds (N x 2)
+    ├ 🔢 zPre
+    ├ 🔢 zPost
+    └ 📈 fastZ2RefZ
+```
+
 ## File Field Descriptions
 
 ### `trial_table.h5`
@@ -262,6 +282,25 @@ Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripReg
 | `slap2/onlineMotionXshift` | 1 x nDSframes | numeric | Online motion-correction X shift from the microscope |
 | `slap2/onlineMotionYshift` | 1 x nDSframes | numeric | Online motion-correction Y shift from the microscope |
 | `slap2/onlineMotionZshift` | 1 x nDSframes | numeric | Online motion-correction Z shift from the microscope |
+
+### `integrationRegLookupTable.h5`
+
+`IntegrationRegistration` writes this cached lookup table to `motion_correction/` on the first run and loads it on later runs. XY search limits (`xPre`, `yPre`, etc.) are shared across paths; per-path superpixel and reference-stack data live under `Path{n}` (one group per DMD, in trial-table path order). `Y`, `X`, and `Z` are the row, column, and reference-stack Z dimensions of the motion search cube (`yPre + yPost + 1`, etc.).
+
+| Field | Size | Data type | Description |
+| --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
+| `xPre` | 1 x 1 | numeric | Maximum column shift searched **before** the reference position (pixels); equals `align_params.maxshiftXY` |
+| `xPost` | 1 x 1 | numeric | Maximum column shift searched **after** the reference position (pixels); equals `align_params.maxshiftXY` |
+| `yPre` | 1 x 1 | numeric | Maximum row shift searched **before** the reference position (pixels); equals `align_params.maxshiftXY` |
+| `yPost` | 1 x 1 | numeric | Maximum row shift searched **after** the reference position (pixels); equals `align_params.maxshiftXY` |
+| `Path{n}` | — | group | One group per imaging path (DMD) |
+| `Path{n}/likelihood_means` | Y x X x Z x C x nSP | single | Precomputed expected superpixel mean intensity in the padded reference stack at each displacement in the search cube, per channel and superpixel; used as the template for Poisson or correlation motion inference |
+| `Path{n}/allSuperPixelIDs` | nSP x 1 | numeric | Unique superpixel keys for this path: `superPixIdx * 100 + zIdx` (integration-mode pixels only when `integrationOnly` is true) |
+| `Path{n}/sparseMaskInds` | N x 2 | numeric | Sparse ROI definition: column 1 = linear DMD pixel index (`rows x cols x numFastZs` layout); column 2 = superpixel index (1 … nSP) |
+| `Path{n}/zPre` | 1 x 1 | numeric | Maximum reference-stack Z shift searched **before** the matched plane (planes); capped by `align_params.maxshiftZ` and available reference Z planes |
+| `Path{n}/zPost` | 1 x 1 | numeric | Maximum reference-stack Z shift searched **after** the matched plane (planes); capped similarly to `zPre` |
+| `Path{n}/fastZ2RefZ` | numFastZs x 1 | numeric | Maps each imaged fast-Z index to the nearest reference-stack Z plane index (used when sampling `likelihood_means`) |
 
 ### `annotations.h5`
 
