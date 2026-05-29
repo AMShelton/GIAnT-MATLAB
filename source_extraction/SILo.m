@@ -307,6 +307,7 @@ for DMDix = nDMDs:-1:1
     if k > 0
         sources.R = sources.R(keepSources);
         sources.C = sources.C(keepSources);
+        sources.V = sources.V(keepSources);
     end
     selPix = selPix(:,:,keepSources);
     disp(['Number of sources: ' int2str(sum(keepSources))]);
