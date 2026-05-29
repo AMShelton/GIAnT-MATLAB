@@ -114,11 +114,9 @@ if isnumeric(val)
     dtype = class(val);
     val = gather(val);          % collect gpuArray / codistributed
     sz  = size(val);
-    % Force a completely fresh allocation via arithmetic. Simple assignment
-    % (plainVal(:) = val(:)) copies internal thread-pool metadata flags along
-    % with the values, causing 'double != double' in h5write. The + operator
-    % always produces a new, cleanly-flagged array.
-    plainVal = val + cast(0, dtype);
+    % Round-trip through cast to materialize a plain array of the declared
+    % class without applying per-element arithmetic.
+    plainVal = cast(val, dtype);
     h5create(filename, path, sz, 'Datatype', dtype);
     h5write(filename, path, plainVal);
     return;
