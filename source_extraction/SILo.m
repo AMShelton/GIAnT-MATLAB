@@ -355,20 +355,52 @@ for DMDix = nDMDs:-1:1
     clear meanAligned meanIM actAligned F0selDS E
 end
 
+% Shut down the parallel pool explicitly here so all thread-pool arrays are
+% fully materialised into regular MATLAB memory before the HDF5 saves.
+% The pause gives the pool time to fully release shared memory before h5write.
+delete(gcp('nocreate'));
+pause(5);
+
 params.endTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
 trialTable.source_extraction.analysis_params = params;
-saveStructToH5(trialTable, [dr filesep trialTablefn]);
-
 
 %prepare file for saving
 exptSummary.params = params;
 exptSummary.trialTable = trialTable;
 exptSummary.dr = dr;
 
-%save
-saveExperimentSummaryH5(fullfile(savedr, 'experiment_summary.h5'), exptSummary, trialTable);
-savePerTrialSummaryH5(fullfile(savedr, 'per_trial_summary.h5'), exptSummary, trialTable);
+%save (with retry so a transient HDF5 error does not discard all results)
+trySave(@() saveStructToH5(trialTable, [dr filesep trialTablefn]),          'trial_table');
+trySave(@() saveExperimentSummaryH5(fullfile(savedr, 'experiment_summary.h5'), exptSummary, trialTable), 'experiment_summary');
+trySave(@() savePerTrialSummaryH5(  fullfile(savedr, 'per_trial_summary.h5'),  exptSummary, trialTable), 'per_trial_summary');
 
 disp('Done summarize_LoCo')
+end
+
+function trySave(saveFcn, label, maxAttempts)
+%TRYSAVE  Call saveFcn up to maxAttempts times, pausing between failures.
+% Note: retries only help with transient I/O errors. Failures caused by
+% stale thread-pool state in the current process will not recover across
+% retries.
+if nargin < 3 || isempty(maxAttempts)
+    maxAttempts = 3;
+end
+for attempt = 1:maxAttempts
+    try
+        saveFcn();
+        return;
+    catch ME
+        fprintf(2, 'WARNING: Attempt %d/%d to save "%s" failed: %s\n', ...
+            attempt, maxAttempts, label, ME.message);
+        if attempt < maxAttempts
+            % Long pause to allow the thread pool to fully release shared
+            % memory asynchronously — the taint clears once shutdown completes.
+            fprintf(2, 'Waiting 30s before retry...\n');
+            pause(30);
+        else
+            rethrow(ME);
+        end
+    end
+end
 end
