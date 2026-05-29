@@ -287,6 +287,12 @@ for DMDix = nDMDs:-1:1
         sources.R = round(thetaf(:,2));
         sources.C = round(thetaf(:,3));
         sources.V = thetaf(:,1);
+        
+        % prune source seeds that are the same
+        [~, uniqueIx] = unique([sources.R(:) sources.C(:)], 'rows', 'stable');
+        sources.R = sources.R(uniqueIx);
+        sources.C = sources.C(uniqueIx);
+        sources.V = sources.V(uniqueIx);
         k = length(sources.R);
     end
 
