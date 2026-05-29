@@ -382,12 +382,19 @@ if isempty(d) || d.bytes == 0
     fprintf(2, 'WARNING: experiment_summary.h5 is missing or empty after save.\n');
 else
     fprintf('experiment_summary.h5 written (%d MB)\n', round(d.bytes/1e6));
-    % if sources were found for Path1, spot-check that the trace dataset is readable
-    try
-        info = h5info(expSumFn, '/Path1/sources/temporal/dF_denoised');
-        fprintf('  /Path1 trace shape: %s\n', mat2str(info.Dataspace.Size));
-    catch
-        fprintf('  /Path1/sources/temporal/dF_denoised not found — no sources extracted for Path1.\n');
+    % if sources were found, spot-check that each trace dataset is readable
+    for DMDix = 1:numel(exptSummary.sources)
+        if isempty(exptSummary.sources{DMDix}) || ~isfield(exptSummary.sources{DMDix}, 'R') ...
+                || isempty(exptSummary.sources{DMDix}.R)
+            continue
+        end
+        datasetPath = sprintf('/Path%d/sources/temporal/dF_denoised', DMDix);
+        try
+            info = h5info(expSumFn, datasetPath);
+            fprintf('  %s shape: %s\n', datasetPath, mat2str(info.Dataspace.Size));
+        catch
+            fprintf('  %s not found.\n', datasetPath);
+        end
     end
 end
 
