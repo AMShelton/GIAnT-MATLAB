@@ -34,7 +34,15 @@ For SLAP2, analysis trials are the experimental trials if the data was collected
 
 For data not collected on SLAP2, the current GIAnT pipeline sets Epochs to be 1 and each file that is selected to be processed is an analysis trial. These analysis trials must be able to be aligned to one another.
 
-## Trial Table
+## Pipeline Outputs
+
+### Reading H5 outside MATLAB
+
+GIAnT writes H5 from MATLAB. **Dimension tuples in this README match MATLAB `size()`** for each dataset (column-major in memory).
+
+`h5py` and other non-MATLAB readers may assume a row-major order for the data. When reading data using Python or other languages, data axes may need to be permuted to match the axis orders listed here.
+
+### Trial Table
 Each experiment processed with GIAnT first gets a trial_table.h5 file that summarizes relevant file locations and analysis trial structures. The `slap2` group is only populated for SLAP2 experiments. The `motion_correction` and `source_extraction` groups are populated by downstream pipeline stages and will only be present once those stages have run. The structure of the trial_table is as below (🗄️ file · 📁 group · 🔤 string · 🔢 integer · 📈 numeric · 🖼️ image · ☑️ bool):
 
 ```
@@ -44,6 +52,7 @@ Each experiment processed with GIAnT first gets a trial_table.h5 file that summa
  ├ 🔤 filename
  ├ 🔢 true_trial_ix
  ├ 🔢 epoch
+ ├ ☑️ row_major
  ├ 📁 slap2
  |  ├ 📁 ref_stack
  |  |  └ 📁 Path{1,2}
@@ -67,11 +76,12 @@ Each experiment processed with GIAnT first gets a trial_table.h5 file that summa
     └ 🔤 fn_raw
 ```
 
-## Alignment Data
+### Alignment Data
 The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` that contains the alignment data for each trial. The structure of the alignment data is as below
 
 ```
 🗄️ <trial_stem>_ALIGNMENTDATA.h5
+ ├ ☑️ row_major
  ├ 📈 motionDSc
  ├ 📈 motionDSr
  ├ 📈 motionDSz
@@ -99,12 +109,13 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
     └ 🔢 trimCols
 ```
 
-## Manual Annotations
+### Manual Annotations
 
 In our pipeline, users can manually annotate pixels to exclude from analysis or pixels that correspond to soma, whose signals should be extracted (the pipeline has typically been used for single-neuron simultaneous glutamate + calcium imaging experiments on the SLAP2). When ROIs are annotated (either in `annotateROIs.m` or `SILo.m`), information about the ROIs are saved in the `annotations.h5` file. The structure of that file is as below
 
 ```
 🗄️ annotations.h5
+ ├ ☑️ row_major
  ├ ☑️ coords_zero_indexed
  └ 📁 Path{1,2}
     ├ 🔤 dr
@@ -121,12 +132,13 @@ In our pipeline, users can manually annotate pixels to exclude from analysis or 
        └ 📈 radius (circle)
 ```
 
-## Experiment Summary
+### Experiment Summary
 
 The final step of the pipeline, source extraction (Source Identification by Activity Localization; SILo), outputs an `experiment_summary.h5` file which contains the extracted sources as well as other useful data about the experiment. The structure of that file is as follows
 
 ```
 🗄️ experiment_summary.h5
+ ├ ☑️ row_major
  ├ 📁 params
  └ 📁 Path{1,2}
     ├ 📈 Z_depths (fastz x 1)
@@ -167,6 +179,7 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 
 ```
 🗄️ per_trial_summary.h5
+ ├ ☑️ row_major
  └ 📁 Path{1,2}
     ├ 📁 sources
     |  ├ 📁 temporal
@@ -188,6 +201,7 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 | `datadr` | 1 x 1 | string | Data directory location |
 | `savedr` | 1 x 1 | string | Results directory location |
 | `filename` | nPaths x total trials | string (ragged) | Relative file name from `datadr` |
@@ -214,6 +228,10 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 | `source_extraction/fn_raw` | nPaths x total trials | string | Raw file source extraction reads from per trial |
 
 ### `<trial_stem>_ALIGNMENTDATA.h5`
+
+| Field | Size | Data type | Description |
+| --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 
 Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripRegistration.m` (Bergamo); `DSframes`/`registrationFailed` by `MultiRoiRegistration.m` (SLAP2). The `slap2` group is only populated for SLAP2 experiments.
 
@@ -254,6 +272,7 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 | `coords_zero_indexed` | 1 x 1 | uint8 | When `1`, `position`/`center` are 0-indexed `[y_loc, x_loc]`; when absent or `0`, legacy 1-indexed `[x, y]` |
 | `Path{n}` | — | group | One group per imaging path in trial-table order |
 | `Path{n}/dr` | 1 x nChars | uint16 | Motion-correction directory used while drawing these ROIs |
@@ -276,6 +295,7 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 | `params` | — | struct | Analysis parameters (`SILo` `params` struct). `params/activityChannel` is **1-indexed** into the recording's `numChannels` channels — use it to pick the glutamate channel from any `channels x …` dataset in this file (e.g., `global/F`, `sources/temporal/dF_ls`) |
 | `Path{n}` | — | group | One group per imaging path |
 | `Path{n}/Z_depths` | fastz x 1 | numeric | Z depths per imaging plane (SLAP2 only) |
@@ -319,6 +339,7 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
+| `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 | `Path{n}` | — | group | One group per imaging path |
 | `Path{n}/visualizations` | — | group | Per-trial static images for QC |
 | `Path{n}/visualizations/per_trial_mean_im` | trials x channels x fastz x rows x cols | numeric | Trial-aligned mean registered image per channel / Z slice |
