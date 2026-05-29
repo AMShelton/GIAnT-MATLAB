@@ -375,6 +375,23 @@ trySave(@() saveStructToH5(trialTable, [dr filesep trialTablefn]),          'tri
 trySave(@() saveExperimentSummaryH5(fullfile(savedr, 'experiment_summary.h5'), exptSummary, trialTable), 'experiment_summary');
 trySave(@() savePerTrialSummaryH5(  fullfile(savedr, 'per_trial_summary.h5'),  exptSummary, trialTable), 'per_trial_summary');
 
+%verify the saved file is readable and non-empty
+expSumFn = fullfile(savedr, 'experiment_summary.h5');
+d = dir(expSumFn);
+if isempty(d) || d.bytes == 0
+    fprintf(2, 'WARNING: experiment_summary.h5 is missing or empty after save.\n');
+else
+    fprintf('experiment_summary.h5 written (%d MB)\n', round(d.bytes/1e6));
+    % if sources were found for Path1, spot-check that the trace dataset is readable
+    try
+        info = h5info(expSumFn, '/Path1/sources/temporal/dF_denoised');
+        fprintf('  /Path1 trace shape: %s\n', mat2str(info.Dataspace.Size));
+    catch
+        fprintf('  /Path1/sources/temporal/dF_denoised not found — no sources extracted for Path1.\n');
+    end
+end
+
+
 disp('Done summarize_LoCo')
 end
 
