@@ -287,6 +287,12 @@ for DMDix = nDMDs:-1:1
         sources.R = round(thetaf(:,2));
         sources.C = round(thetaf(:,3));
         sources.V = thetaf(:,1);
+        
+        % prune source seeds that are the same
+        [~, uniqueIx] = unique([sources.R(:) sources.C(:)], 'rows', 'stable');
+        sources.R = sources.R(uniqueIx);
+        sources.C = sources.C(uniqueIx);
+        sources.V = sources.V(uniqueIx);
         k = length(sources.R);
     end
 
@@ -307,6 +313,7 @@ for DMDix = nDMDs:-1:1
     if k > 0
         sources.R = sources.R(keepSources);
         sources.C = sources.C(keepSources);
+        sources.V = sources.V(keepSources);
     end
     selPix = selPix(:,:,keepSources);
     disp(['Number of sources: ' int2str(sum(keepSources))]);
