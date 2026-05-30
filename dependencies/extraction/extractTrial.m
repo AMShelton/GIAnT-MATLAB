@@ -356,6 +356,11 @@ covX = inv(H_est' * W * H_est); %uncertainty estimate for X
 Xnoise = sqrt(diag(covX)./params.tau_full);
 Xsnr = std(X_est_new, 0,2)./Xnoise;
 
+if any(imag(Xsnr(:)) ~= 0)
+    warning('Xsnr is complex, taking real component');
+    Xsnr = real(Xsnr);
+end
+
 %fit least squares
 dFls = H_est\(Y_obs-B_est);
 
