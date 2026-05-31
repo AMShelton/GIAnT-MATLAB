@@ -309,7 +309,8 @@ for DMDix = nDMDs:-1:1
     selPix = selPix & repmat(pxAlwaysValid, 1, 1, k); %ADJUST SELECTED PIXELS NOT TO INCLUDE POORLY MEASURED PIXELS
 
     %prune any sources that got clipped by pixel selection process
-    keepSources = sum(selPix, [1 2])>5;
+    centerValid = pxAlwaysValid(sub2ind(size(pxAlwaysValid), sources.R, sources.C));
+    keepSources = squeeze(sum(selPix, [1 2]))>5 & centerValid(:);
     if k > 0
         sources.R = sources.R(keepSources);
         sources.C = sources.C(keepSources);
