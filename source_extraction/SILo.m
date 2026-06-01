@@ -309,7 +309,8 @@ for DMDix = nDMDs:-1:1
     selPix = selPix & repmat(pxAlwaysValid, 1, 1, k); %ADJUST SELECTED PIXELS NOT TO INCLUDE POORLY MEASURED PIXELS
 
     %prune any sources that got clipped by pixel selection process
-    keepSources = sum(selPix, [1 2])>5;
+    centerValid = pxAlwaysValid(sub2ind(size(pxAlwaysValid), sources.R, sources.C));
+    keepSources = squeeze(sum(selPix, [1 2]))>5 & centerValid(:);
     if k > 0
         sources.R = sources.R(keepSources);
         sources.C = sources.C(keepSources);
@@ -362,20 +363,76 @@ for DMDix = nDMDs:-1:1
     clear meanAligned meanIM actAligned F0selDS E
 end
 
+% Shut down the parallel pool explicitly here so all thread-pool arrays are
+% fully materialised into regular MATLAB memory before the HDF5 saves.
+% The pause gives the pool time to fully release shared memory before h5write.
+delete(gcp('nocreate'));
+pause(5);
+
 params.endTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
 trialTable.source_extraction.analysis_params = params;
-saveStructToH5(trialTable, [dr filesep trialTablefn]);
-
 
 %prepare file for saving
 exptSummary.params = params;
 exptSummary.trialTable = trialTable;
 exptSummary.dr = dr;
 
-%save
-saveExperimentSummaryH5(fullfile(savedr, 'experiment_summary.h5'), exptSummary, trialTable);
-savePerTrialSummaryH5(fullfile(savedr, 'per_trial_summary.h5'), exptSummary, trialTable);
+%save (with retry so a transient HDF5 error does not discard all results)
+trySave(@() saveStructToH5(trialTable, [dr filesep trialTablefn]),          'trial_table');
+trySave(@() saveExperimentSummaryH5(fullfile(savedr, 'experiment_summary.h5'), exptSummary, trialTable), 'experiment_summary');
+trySave(@() savePerTrialSummaryH5(  fullfile(savedr, 'per_trial_summary.h5'),  exptSummary, trialTable), 'per_trial_summary');
+
+%verify the saved file is readable and non-empty
+expSumFn = fullfile(savedr, 'experiment_summary.h5');
+d = dir(expSumFn);
+if isempty(d) || d.bytes == 0
+    fprintf(2, 'WARNING: experiment_summary.h5 is missing or empty after save.\n');
+else
+    fprintf('experiment_summary.h5 written (%d MB)\n', round(d.bytes/1e6));
+    % if sources were found, spot-check that each trace dataset is readable
+    for DMDix = 1:numel(exptSummary.sources)
+        if isempty(exptSummary.sources{DMDix}) || ~isfield(exptSummary.sources{DMDix}, 'R') ...
+                || isempty(exptSummary.sources{DMDix}.R)
+            continue
+        end
+        datasetPath = sprintf('/Path%d/sources/temporal/dF_denoised', DMDix);
+        try
+            info = h5info(expSumFn, datasetPath);
+            fprintf('  %s shape: %s\n', datasetPath, mat2str(info.Dataspace.Size));
+        catch
+            fprintf('  %s not found.\n', datasetPath);
+        end
+    end
+end
+
 
 disp('Done summarize_LoCo')
+end
+
+function trySave(saveFcn, label, maxAttempts)
+%TRYSAVE  Call saveFcn up to maxAttempts times, pausing between failures.
+% Note: retries only help with transient I/O errors. Failures caused by
+% stale thread-pool state in the current process will not recover across
+% retries.
+if nargin < 3 || isempty(maxAttempts)
+    maxAttempts = 3;
+end
+for attempt = 1:maxAttempts
+    try
+        saveFcn();
+        return;
+    catch ME
+        fprintf(2, 'WARNING: Attempt %d/%d to save "%s" failed: %s\n', ...
+            attempt, maxAttempts, label, ME.message);
+        if attempt < maxAttempts
+            % Long pause to allow the thread pool to fully release shared
+            % memory asynchronously — the taint clears once shutdown completes.
+            fprintf(2, 'Waiting 30s before retry...\n');
+            pause(30);
+        else
+            rethrow(ME);
+        end
+    end
+end
 end
