@@ -109,7 +109,7 @@ if sum(pTmp(:))
 
     fitSupport = (fitIM > 1e-3);
     rejectMask = false(size(actIM));
-    explored = resIM .* ~bufferMask .* ~exclusionMask .* ~rejectMask .* fitSupport;
+    explored = resIM .* ~bufferMask .* ~exclusionMask .* ~rejectMask .* fitSupport .* actSelPix;
     pTmp = zeros(size(explored));
     if any(fitSupport(:)) && max(explored(:)) > peakth
         pTmp = explored == max(explored(:));
@@ -186,14 +186,14 @@ if sum(pTmp(:))
             resIM = resIM ./ sigma_bg;
         end
     
+        actSelPix = imdilate(pIM, ones(9)) & ~isnan(actIM);
+
         fitSupport = (fitIM > 1e-3);
-        explored = resIM .* ~bufferMask .* ~exclusionMask .* ~rejectMask .* fitSupport;
+        explored = resIM .* ~bufferMask .* ~exclusionMask .* ~rejectMask .* fitSupport .* actSelPix;
         pTmp = zeros(size(explored));
         if any(fitSupport(:)) && max(explored(:)) > peakth
             pTmp = explored == max(explored(:));
         end
-
-        actSelPix = imdilate(pIM, ones(9)) & ~isnan(actIM);
     end
 
     switch peakFuncOpt
