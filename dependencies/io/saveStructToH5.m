@@ -114,8 +114,14 @@ if isnumeric(val)
     if isempty(val)
         return;
     end
-    h5create(filename, path, size(val), 'Datatype', class(val));
-    h5write(filename, path, val);
+    dtype = class(val);
+    val = gather(val);          % collect gpuArray / codistributed
+    sz  = size(val);
+    % Round-trip through cast to materialize a plain array of the declared
+    % class without applying per-element arithmetic.
+    plainVal = cast(val, dtype);
+    h5create(filename, path, sz, 'Datatype', dtype);
+    h5write(filename, path, plainVal);
     return;
 end
 
