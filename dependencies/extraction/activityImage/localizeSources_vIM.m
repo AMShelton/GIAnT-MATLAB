@@ -65,7 +65,7 @@ if params.microscope == "SLAP2" || params.poissBasedStdIM
     %Highpass filter in time; This must occur before DoG to avoid edge artifacts
     IMf = IMf - IMb; 
 
-    stdIM = sqrt(Vk.*IMb.*vIM+Vb); %compute standard deviation
+    stdIM = sqrt(max(0,Vk.*IMb.*vIM)+Vb); %compute standard deviation
 else
     IMs = smoothdata(IMf, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
     %Highpass filter in time; This must occur before DoG to avoid edge artifacts
