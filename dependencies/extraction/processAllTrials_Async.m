@@ -187,7 +187,7 @@ switch params.microscope
         %rearrange into correct dimensions
         selPx2D = any(selPix,3);
         IM = reshape(IM, size(IM,1), size(IM,2), numChannels, []);
-        baseline = prctile(reshape(median(IM,4), [], numChannels), 5,1);
+        baseline = prctile(reshape(median(IM,4,'omitmissing'), [], numChannels), 5,1);
         IM = IM-reshape(baseline, [1 1 numChannels 1]); %subtract baseline
         nPx = size(IM,1)*size(IM,2);
         nFrames = size(IM,4);
