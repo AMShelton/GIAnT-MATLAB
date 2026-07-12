@@ -55,13 +55,7 @@ end
 nDMDs = size(trialTable.filename, 1);
 nTrials = size(trialTable.true_trial_ix, 2);
 
-if ~isfield(trialTable, 'motion_correction') || isempty(trialTable.motion_correction)
-    trialTable.motion_correction = struct();
-end
-if ~isfield(trialTable.motion_correction, 'integration') || isempty(trialTable.motion_correction.integration)
-    trialTable.motion_correction.integration = struct();
-end
-trialTable.motion_correction.integration.registration_failed = false(nDMDs, nTrials);
+trialTable.motion_correction.registration_failed = false(nDMDs, nTrials);
 
 for DMD_ix = 1:nDMDs
     fnAdata = cell(1, nTrials);
@@ -86,16 +80,16 @@ for DMD_ix = 1:nDMDs
             end
         end
     end
-    trialTable.motion_correction.integration.registration_failed(DMD_ix, :) = regFail;
+    trialTable.motion_correction.registration_failed(DMD_ix, :) = regFail;
     if params.saveTiffs
-        trialTable.motion_correction.integration.fn_reg_ds(DMD_ix, :) = fnRegDS;
+        trialTable.motion_correction.fn_reg_ds(DMD_ix, :) = fnRegDS;
     end
-    trialTable.motion_correction.integration.fn_adata(DMD_ix, :) = fnAdata;
+    trialTable.motion_correction.fn_adata(DMD_ix, :) = fnAdata;
 end
 
 params.endTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
-trialTable.motion_correction.integration.align_params = params;
+trialTable.motion_correction.align_params = params;
 saveStructToH5(trialTable, [trialtabledr filesep fn]);
 
 disp('done integrationRegistration.')

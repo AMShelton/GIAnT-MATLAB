@@ -89,6 +89,8 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
  ├ 📈 motionR
  ├ 📈 motionZ
  ├ 📈 recNegErr
+ ├ 📈 brightnessDS
+ ├ 📈 logLikelihoodDS
  ├ 🔢 DSframes
  ├ 🖼️ meanIM
  ├ ☑️ registrationFailed
@@ -253,7 +255,7 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 | --- | --- | --- | --- |
 | `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 
-Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripRegistration.m` (Bergamo); `DSframes`/`registrationFailed` by `MultiRoiRegistration.m` (SLAP2). The `slap2` group is only populated for SLAP2 experiments.
+Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripRegistration.m` (Bergamo); `DSframes`/`registrationFailed` by `MultiRoiRegistration.m` (SLAP2); `brightnessDS`/`logLikelihoodDS` by `IntegrationRegistration.m` (SLAP2). The `slap2` group is only populated for SLAP2 experiments.
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
@@ -265,6 +267,8 @@ Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripReg
 | `motionDSr` | 1 x nDSframes | numeric | Inferred row shift per downsampled frame |
 | `motionDSz` | 1 x nDSframes | numeric | (optional) Inferred Z shift per downsampled frame; written only when 3D alignment was performed |
 | `recNegErr` | 1 x nDSframes | numeric | Per-frame reconstruction error; standard alignment QC metric and used for motion censoring |
+| `brightnessDS` | nDSframes x channels | numeric | (IntegrationRegistration only) Per-channel brightness/scaling factor at the selected motion shift |
+| `logLikelihoodDS` | nDSframes x 1 | numeric | (IntegrationRegistration only) Peak log-likelihood of the motion match per downsampled frame |
 | `motionC` | 1 x nFrames | numeric | Column shift upsampled to raw frame rate (Bergamo only) |
 | `motionR` | 1 x nFrames | numeric | Row shift upsampled to raw frame rate (Bergamo only) |
 | `motionZ` | 1 x nFrames | numeric | (optional) Z shift upsampled to raw frame rate; written only when 3D alignment was performed |
