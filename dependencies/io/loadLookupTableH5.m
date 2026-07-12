@@ -1,5 +1,5 @@
 function lt = loadLookupTableH5(filename)
-%LOADLOOKUPTABLEH5 Read integration registration lookup table from HDF5.
+%LOADLOOKUPTABLEH5 Read band registration lookup table from HDF5.
 lt = lookupTableFromH5Struct(loadStructFromH5(filename));
 end
 

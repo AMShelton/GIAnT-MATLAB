@@ -1,4 +1,5 @@
-function params = IntegrationRegistration(fullPathToTrialTable, paramsIn)
+function params = BandRegistration(fullPathToTrialTable, paramsIn)
+% BANDREGISTRATION.M - motion registration for Band Scanning SLAP2 data
 
 if ~nargin
     [fn, trialtabledr] = uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5');
@@ -8,9 +9,9 @@ end
 
 %PARAMETER SETTING
 if nargin>1
-    params = setParams('IntegrationRegistration', paramsIn);
+    params = setParams('BandRegistration', paramsIn);
 else
-    params = setParams('IntegrationRegistration');
+    params = setParams('BandRegistration');
 end
 
 params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
@@ -41,7 +42,7 @@ if poolsize~=nWorkers
 end
 
 %% make look up table for each DMD
-lookupFile = fullfile(mocosavedr, 'integrationRegLookupTable.h5');
+lookupFile = fullfile(mocosavedr, 'bandRegLookupTable.h5');
 
 if ~exist(lookupFile, 'file')
     lookupTable = makeRefLookupTable(trialTable.datadr, trialTable, params, lookupFile);
@@ -66,17 +67,17 @@ for DMD_ix = 1:nDMDs
     if nWorkers > 1
         parfor f_ix = 1:nTrials
             if params.saveTiffs
-                [fnRegDS{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
+                [fnRegDS{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignBandAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
             else
-                [~, fnAdata{f_ix}, regFail(f_ix)] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
+                [~, fnAdata{f_ix}, regFail(f_ix)] = alignBandAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
             end
         end
     else
         for f_ix = 1:nTrials
             if params.saveTiffs
-                [fnRegDS{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
+                [fnRegDS{f_ix}, fnAdata{f_ix}, regFail(f_ix)] = alignBandAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
             else
-                [~, fnAdata{f_ix}, regFail(f_ix)] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
+                [~, fnAdata{f_ix}, regFail(f_ix)] = alignBandAsync(trialTable, lookupTable, params, f_ix, DMD_ix);
             end
         end
     end
@@ -92,7 +93,7 @@ params.endTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T'
 trialTable.motion_correction.align_params = params;
 saveStructToH5(trialTable, [trialtabledr filesep fn]);
 
-disp('done integrationRegistration.')
+disp('done BandRegistration.')
 end
 
 function lookupTable = makeRefLookupTable(datadr, trialTable, params, lookupFile)
@@ -273,7 +274,7 @@ saveLookupTableH5(lookupTable, lookupFile);
 end
 
 
-function [fnwrite, fnAdata, registrationFailed] = alignIntegrationAsync(trialTable, lookupTable, params, f_ix, DMD_ix)
+function [fnwrite, fnAdata, registrationFailed] = alignBandAsync(trialTable, lookupTable, params, f_ix, DMD_ix)
 
 mocosavedr = fullfile(trialTable.savedr, 'motion_correction');
 fn = trialTable.filename{DMD_ix, f_ix};

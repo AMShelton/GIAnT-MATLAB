@@ -44,7 +44,7 @@ switch fnName
         params.isReVolt = false; tooltips.isReVolt = 'select true for recordings with simultaneous red 1P imaging';
         params.includeIntegrationROIs = false; tooltips.includeIntegrationROIs = 'Use integration ROIs for alignment and TIFF generation?';
         params.operator = 'User';       tooltips.operator = 'person running the analysis (for aind-data-schema metadata)';
-    case 'IntegrationRegistration'
+    case 'BandRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshiftXY = 25; tooltips.maxshift = 'Maximum frame offset,in pixels';
         params.maxshiftZ = 10; tooltips.maxshift = 'Maximum frame offset,in pixels';

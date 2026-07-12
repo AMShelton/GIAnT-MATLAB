@@ -1,5 +1,5 @@
 function saveLookupTableH5(lt, filename)
-%SAVELOOKUPTABLEH5 Write integration registration lookup table to HDF5.
+%SAVELOOKUPTABLEH5 Write band registration lookup table to HDF5.
 %   Schema: /xPre, /xPost, /yPre, /yPost; /Path{N}/likelihood_means, ...
 saveStructToH5(lookupTableToH5Struct(lt), filename);
 end
