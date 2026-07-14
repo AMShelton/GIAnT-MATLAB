@@ -536,9 +536,9 @@ aData.numChannels = numChannels;
 aData.frametime = 1/aData.alignHz;
 aData.DSframes = DSframes;
 
-aData.motionDSc = -motionDS(:,2);
-aData.motionDSr = -motionDS(:,1);
-aData.motionDSz = -motionDS(:,3);
+aData.motionDSc = -motionDS(:,2)';
+aData.motionDSr = -motionDS(:,1)';
+aData.motionDSz = -motionDS(:,3)';
 aData.brightnessDS = brightnessDS;
 aData.logLikelihoodDS = loglikelihoodDS;
 
