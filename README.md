@@ -43,7 +43,7 @@ GIAnT writes H5 from MATLAB. **Dimension tuples in this README match MATLAB `siz
 `h5py` and other non-MATLAB readers may assume a row-major order for the data. When reading data using Python or other languages, data axes may need to be permuted to match the axis orders listed here.
 
 ### Trial Table
-Each experiment processed with GIAnT first gets a trial_table.h5 file that summarizes relevant file locations and analysis trial structures. The `slap2` group is only populated for SLAP2 experiments. The `motion_correction` and `source_extraction` groups are populated by downstream pipeline stages and will only be present once those stages have run. The structure of the trial_table is as below (🗄️ file · 📁 group · 🔤 string · 🔢 integer · 📈 numeric · 🖼️ image · ☑️ bool):
+Each experiment processed with GIAnT first gets a trial_table.h5 file that summarizes relevant file locations and analysis trial structures. The `slap2_info` group is only populated for SLAP2 experiments. The `motion_correction` and `source_extraction` groups are populated by downstream pipeline stages and will only be present once those stages have run. The structure of the trial_table is as below (🗄️ file · 📁 group · 🔤 string · 🔢 integer · 📈 numeric · 🖼️ image · ☑️ bool):
 
 ```
 🗄️ trial_table.h5
@@ -53,7 +53,7 @@ Each experiment processed with GIAnT first gets a trial_table.h5 file that summa
  ├ 🔢 true_trial_ix
  ├ 🔢 epoch
  ├ ☑️ row_major
- ├ 📁 slap2
+ ├ 📁 slap2_info
  |  ├ 📁 ref_stack
  |  |  └ 📁 Path{1,2}
  |  |     ├ 🖼️ IM
@@ -82,33 +82,33 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
 ```
 🗄️ <trial_stem>_ALIGNMENTDATA.h5
  ├ ☑️ row_major
+ ├ 📈 numChannels
+ ├ 📈 frametime
+ ├ 📈 alignHz
  ├ 📈 motionDSc
  ├ 📈 motionDSr
- ├ 📈 motionDSz
- ├ 📈 motionC
- ├ 📈 motionR
- ├ 📈 motionZ
- ├ 📈 recNegErr
- ├ 📈 brightnessDS
- ├ 📈 logLikelihoodDS
- ├ 🔢 DSframes
- ├ 🖼️ meanIM
- ├ ☑️ registrationFailed
- ├ 📈 alignHz
- ├ 🔢 numChannels
- ├ 📈 frametime
- └ 📁 slap2
+ ├ 📈 motionDSz           (BandRegistration always; MultiRoiRegistration when refStackTemplate is enabled)
+ ├ 🖼️ meanIM              (StripRegistration and MultiRoiRegistration only; not written by BandRegistration)
+ ├ 📈 recNegErr           (StripRegistration and MultiRoiRegistration only; not written by BandRegistration)
+ ├ 📈 motionC             (StripRegistration / Bergamo only)
+ ├ 📈 motionR             (StripRegistration / Bergamo only)
+ ├ 📈 motionZ             (reserved; not written by any current script)
+ ├ 📈 brightnessDS        (BandRegistration only)
+ ├ 📈 logLikelihoodDS     (BandRegistration only)
+ ├ 🔢 DSframes            (SLAP2 only: MultiRoiRegistration and BandRegistration)
+ ├ ☑️ registrationFailed  (SLAP2 only: MultiRoiRegistration and BandRegistration)
+ └ 📁 slap2               (SLAP2 only)
     ├ 📈 onlineMotionXshift
     ├ 📈 onlineMotionYshift
     ├ 📈 onlineMotionZshift
-    ├ 🖼️ varFacDS
-    ├ 📈 Z_depths
-    ├ 🔢 cropRow
-    ├ 🔢 cropCol
-    ├ 🖼️ viewC
-    ├ 🖼️ viewR
-    ├ 🔢 trimRows
-    └ 🔢 trimCols
+    ├ 🖼️ varFacDS          (MultiRoiRegistration only)
+    ├ 📈 Z_depths          (MultiRoiRegistration only)
+    ├ 🔢 cropRow           (MultiRoiRegistration only)
+    ├ 🔢 cropCol           (MultiRoiRegistration only)
+    ├ 🖼️ viewC             (MultiRoiRegistration only)
+    ├ 🖼️ viewR             (MultiRoiRegistration only)
+    ├ 🔢 trimRows          (MultiRoiRegistration only)
+    └ 🔢 trimCols          (MultiRoiRegistration only)
 ```
 
 ### Manual Annotations
@@ -255,34 +255,34 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 | --- | --- | --- | --- |
 | `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 
-Top-level fields are shared across microscopes; `motionC`/`motionR` by `StripRegistration.m` (Bergamo); `DSframes`/`registrationFailed` by `MultiRoiRegistration.m` (SLAP2); `brightnessDS`/`logLikelihoodDS` by `BandRegistration.m` (SLAP2). The `slap2` group is only populated for SLAP2 experiments.
+Top-level fields written by **all three** motion correction scripts: `numChannels`, `frametime`, `alignHz`, `motionDSc`, `motionDSr`. `meanIM` and `recNegErr` are written by `StripRegistration.m` and `MultiRoiRegistration.m` but **not** by `BandRegistration.m`. `motionC`/`motionR` are written only by `StripRegistration.m` (Bergamo); `DSframes`/`registrationFailed` by both SLAP2 scripts (`MultiRoiRegistration.m` and `BandRegistration.m`); `brightnessDS`/`logLikelihoodDS` by `BandRegistration.m` only. The `slap2` group is only populated for SLAP2 experiments.
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
 | `numChannels` | 1 x 1 | integer | Number of channels in the recording |
-| `meanIM` | channels x rows x cols | single | Per-channel mean of motion-corrected frames |
+| `meanIM` | channels x rows x cols | single | Per-channel mean of motion-corrected frames (not written by BandRegistration) |
 | `frametime` | 1 x 1 | numeric | Seconds per downsampled frame |
 | `alignHz` | 1 x 1 | numeric | Frame rate (Hz) at which alignment was performed |
 | `motionDSc` | 1 x nDSframes | numeric | Inferred column shift per downsampled frame |
 | `motionDSr` | 1 x nDSframes | numeric | Inferred row shift per downsampled frame |
-| `motionDSz` | 1 x nDSframes | numeric | (optional) Inferred Z shift per downsampled frame; written only when 3D alignment was performed |
-| `recNegErr` | 1 x nDSframes | numeric | Per-frame reconstruction error; standard alignment QC metric and used for motion censoring |
+| `motionDSz` | 1 x nDSframes | numeric | Inferred Z shift per downsampled frame; always written by BandRegistration; written by MultiRoiRegistration only when `refStackTemplate` is enabled; never written by StripRegistration |
+| `recNegErr` | 1 x nDSframes | numeric | Per-frame reconstruction error; standard alignment QC metric and used for motion censoring (not written by BandRegistration) |
 | `brightnessDS` | nDSframes x channels | numeric | (BandRegistration only) Per-channel brightness/scaling factor at the selected motion shift |
 | `logLikelihoodDS` | nDSframes x 1 | numeric | (BandRegistration only) Peak log-likelihood of the motion match per downsampled frame |
 | `motionC` | 1 x nFrames | numeric | Column shift upsampled to raw frame rate (Bergamo only) |
 | `motionR` | 1 x nFrames | numeric | Row shift upsampled to raw frame rate (Bergamo only) |
-| `motionZ` | 1 x nFrames | numeric | (optional) Z shift upsampled to raw frame rate; written only when 3D alignment was performed |
-| `DSframes` | 1 x nDSframes | integer | Line indices of each downsampled frame (SLAP2 only) |
-| `registrationFailed` | 1 x 1 | bool | Whether registration failed for this trial (SLAP2 only) |
+| `motionZ` | 1 x nFrames | numeric | (reserved; not written by any current script) Z shift upsampled to raw frame rate |
+| `DSframes` | 1 x nDSframes | integer | Line indices of each downsampled frame (SLAP2 only: MultiRoiRegistration and BandRegistration) |
+| `registrationFailed` | 1 x 1 | bool | Whether registration failed for this trial (SLAP2 only: MultiRoiRegistration and BandRegistration) |
 | `slap2` | — | group | Only saved for SLAP2 experiments |
-| `slap2/varFacDS` | rows x cols x nDSframes | numeric | Variance factor; multiply pixel intensity to get a value proportional to its variance |
-| `slap2/Z_depths` | fastz x 1 | numeric | Imaged Z depths from microscope metadata |
-| `slap2/cropRow` | 1 x 1 | integer | Row offset to add to ROIs to index into original recording |
-| `slap2/cropCol` | 1 x 1 | integer | Column offset to add to ROIs to index into original recording |
-| `slap2/viewC` | (rows+2·maxshift) x (cols+2·maxshift) | numeric | Column interpolation grid for remapping into saved tiff space |
-| `slap2/viewR` | (rows+2·maxshift) x (cols+2·maxshift) | numeric | Row interpolation grid for remapping into saved tiff space |
-| `slap2/trimRows` | 1 x nTrimRows | integer | Row indices used to remap images from the datafile into saved tiff space |
-| `slap2/trimCols` | 1 x nTrimCols | integer | Column indices used to remap images from the datafile into saved tiff space |
+| `slap2/varFacDS` | rows x cols x nDSframes | numeric | (MultiRoiRegistration only) Variance factor; multiply pixel intensity to get a value proportional to its variance |
+| `slap2/Z_depths` | fastz x 1 | numeric | (MultiRoiRegistration only) Imaged Z depths from microscope metadata |
+| `slap2/cropRow` | 1 x 1 | integer | (MultiRoiRegistration only) Row offset to add to ROIs to index into original recording |
+| `slap2/cropCol` | 1 x 1 | integer | (MultiRoiRegistration only) Column offset to add to ROIs to index into original recording |
+| `slap2/viewC` | (rows+2·maxshift) x (cols+2·maxshift) | numeric | (MultiRoiRegistration only) Column interpolation grid for remapping into saved tiff space |
+| `slap2/viewR` | (rows+2·maxshift) x (cols+2·maxshift) | numeric | (MultiRoiRegistration only) Row interpolation grid for remapping into saved tiff space |
+| `slap2/trimRows` | 1 x nTrimRows | integer | (MultiRoiRegistration only) Row indices used to remap images from the datafile into saved tiff space |
+| `slap2/trimCols` | 1 x nTrimCols | integer | (MultiRoiRegistration only) Column indices used to remap images from the datafile into saved tiff space |
 | `slap2/onlineMotionXshift` | 1 x nDSframes | numeric | Online motion-correction X shift from the microscope |
 | `slap2/onlineMotionYshift` | 1 x nDSframes | numeric | Online motion-correction Y shift from the microscope |
 | `slap2/onlineMotionZshift` | 1 x nDSframes | numeric | Online motion-correction Z shift from the microscope |
