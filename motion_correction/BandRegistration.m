@@ -278,7 +278,7 @@ function [fnwrite, fnAdata, registrationFailed] = alignBandAsync(trialTable, loo
 
 mocosavedr = fullfile(trialTable.savedr, 'motion_correction');
 fn = trialTable.filename{DMD_ix, f_ix};
-fnW = ['E' int2str(trialTable.epoch(DMD_ix, f_ix)) 'T' int2str(f_ix) 'DMD' int2str(DMD_ix) '_INTEGRATION'];
+fnW = ['E' int2str(trialTable.epoch(DMD_ix, f_ix)) 'T' int2str(f_ix) 'DMD' int2str(DMD_ix) '_BAND'];
 firstLine = trialTable.slap2_info.first_line(DMD_ix, f_ix);
 lastLine = trialTable.slap2_info.last_line(DMD_ix, f_ix);
 aData = params;
