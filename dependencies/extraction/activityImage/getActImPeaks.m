@@ -1,39 +1,22 @@
-function thetaf = getActImPeaks(actIM, peakth, exclusionMask, peakFuncOpt, heteroscedasticNoise, minPeakDistance)
+function thetaf = getActImPeaks(actIM, peakth, exclusionMask, minPeakDistance)
 % Defaults
 if nargin < 3 || isempty(exclusionMask)
     exclusionMask = false(size(actIM));
 end
-if nargin < 4 || isempty(peakFuncOpt)
-    peakFuncOpt = 1;
-end
-if nargin < 5 || isempty(heteroscedasticNoise)
-    heteroscedasticNoise = 1;
-end
-if nargin < 6 || isempty(minPeakDistance)
+if nargin < 4 || isempty(minPeakDistance)
     minPeakDistance = 1;
 end
 minPeakDistance = max(1, minPeakDistance);
 peakExclusionSE = ones(2*minPeakDistance - 1);
 
-switch peakFuncOpt
-    case 1
-        peakFunc = @gaussianPeaks;
-    case 2
-        peakFunc = @gaussianPeaksIntegrated;
-end
+peakFunc = @gaussianPeaksIntegrated;
+ampScale = 1 ./ 0.75;
 
 mu_bg = median(actIM,'all','omitmissing');
 sigma_bg = mad(actIM(~isnan(actIM)),1,'all') ./ 0.6741891400433162;
 peak_thresh = mu_bg + peakth * sigma_bg;
 
 opts = optimset('MaxFunEvals',5000,'Display','off');
-
-switch peakFuncOpt
-    case 1
-        ampScale = 1;
-    case 2
-        ampScale = 1 ./ 0.75;
-end
 
 explored = actIM .* ~exclusionMask;
 pTmp = ordfilt2(explored, 8, ones(3)) > peak_thresh & ...
@@ -67,43 +50,7 @@ if sum(pTmp(:))
 
     fitIM = zeros(size(actIM));
     fitIM(actSelPix) = peakFunc(thetaf,[actSelY,actSelX]);
-    resIM = actIM - fitIM - mu_bg;
-
-    if heteroscedasticNoise
-        validPix = fitIM > 1e-3 & ~isnan(resIM);
-        logFitIM = log10(fitIM(validPix));
-        resIMvals = resIM(validPix);
-        fitIMvals = fitIM(validPix);
-        
-        nBins = 20;
-        binEdges = linspace(min(logFitIM), max(logFitIM), nBins+1);
-        [~,~,binIdx] = histcounts(logFitIM, binEdges);
-        
-        binMeans = zeros(nBins,1);
-        binSDs = zeros(nBins,1);
-        for iBin = 1:nBins
-            if sum(binIdx == iBin) >= 20
-                binMeans(iBin) = mean(fitIMvals(binIdx == iBin));
-                binSDs(iBin) = std(resIMvals(binIdx == iBin));
-            end
-        end
-        
-        validBins = binMeans > 0 & binSDs > 0;
-        if sum(validBins) > 1
-            X = [ones(sum(validBins),1), binMeans(validBins)];
-            y = binSDs(validBins);
-            coeffs = X \ y;
-            sigma_bg_adj = coeffs(1);
-            lambda = coeffs(2);
-        else
-            sigma_bg_adj = sigma_bg;
-            lambda = 1;
-        end
-    
-        resIM = resIM ./ (sigma_bg_adj + lambda .* fitIM);
-    else
-        resIM = resIM ./ sigma_bg;
-    end
+    resIM = (actIM - fitIM - mu_bg) ./ sigma_bg;
 
     fitSupport = (fitIM > 1e-3);
     rejectMask = false(size(actIM));
@@ -173,12 +120,7 @@ if sum(pTmp(:))
         bufferMask = imdilate(pIM, peakExclusionSE);
 
         fitIM(actSelPix) = peakFunc(thetaf,[actSelY,actSelX]);
-        resIM = actIM - fitIM - mu_bg;
-        if heteroscedasticNoise
-            resIM = resIM ./ (sigma_bg_adj + lambda .* fitIM);
-        else
-            resIM = resIM ./ sigma_bg;
-        end
+        resIM = (actIM - fitIM - mu_bg) ./ sigma_bg;
     
         actSelPix = imdilate(pIM, ones(9)) & ~isnan(actIM);
 
@@ -190,40 +132,12 @@ if sum(pTmp(:))
         end
     end
 
-    switch peakFuncOpt
-        case 1
-            adj_thresh = peak_thresh ./ exp(-0.25./thetaf(:,4).^2);
-        case 2
-            adj_thresh = peak_thresh ./ (pi/2.*thetaf(:,4).^2.*erf(1./(sqrt(2).*thetaf(:,4))).^2);
-    end
+    adj_thresh = peak_thresh ./ (pi/2.*thetaf(:,4).^2.*erf(1./(sqrt(2).*thetaf(:,4))).^2);
     small_peaks = thetaf(:,1) < adj_thresh;
     
     thetaf(small_peaks,:) = [];
 end
 
-end
-
-function val = gaussianPeaks(theta, yxdata)
-% theta: [N x 4] with columns [amp, mu_y, mu_x, sigma]
-% yxdata: [M x 2] with columns [y, x]
-%
-% val: [M x 1]
-
-y = yxdata(:,1);          % Mx1
-x = yxdata(:,2);          % Mx1
-
-A  = theta(:,1).';        % 1xN
-my = theta(:,2).';        % 1xN
-mx = theta(:,3).';        % 1xN
-s  = theta(:,4).';        % 1xN
-
-inv2s2 = 1 ./ (2 * s.^2); % 1xN
-
-dx = x - mx;              % MxN (implicit expansion)
-dy = y - my;              % MxN
-
-E = exp( -(dx.^2 + dy.^2) .* inv2s2 );  % MxN
-val = E * A.';                           % (MxN)*(Nx1) -> Mx1
 end
 
 function val = gaussianPeaksIntegrated(theta, yxdata)

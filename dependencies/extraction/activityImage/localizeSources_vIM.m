@@ -41,43 +41,30 @@ vIM(nans) = nan; %1000*mean(vIM(:,:, 1:min(end,400)), 'all', 'omitnan');
 % IMf(reshape(nans, size(IMf))) = IMs(reshape(nans, size(IMf))); clear IMs
 % IMf = reshape(IMf, sz(1),sz(2), []);
 
-if params.microscope == "SLAP2" || params.poissBasedStdIM
-    %smooth the data at a timescale on which fluctuations look more
-    %gaussian, for computing variances
-    IMs = smoothdata(IMf./vIM, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
-    vIM = 1./smoothdata(1./vIM, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
-    IMs = IMs.*vIM;
+%smooth the data at a timescale on which fluctuations look more
+%gaussian, for computing variances
+IMs = smoothdata(IMf./vIM, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
+vIM = 1./smoothdata(1./vIM, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
+IMs = IMs.*vIM;
 
-    %baseline estimate
-    IMb = smoothdata(IMs, 3, 'movmedian', baselineWindow, 'omitnan');
+%baseline estimate
+IMb = smoothdata(IMs, 3, 'movmedian', baselineWindow, 'omitnan');
 
-    %estimate Vb and Vk, parameters for estimating variance from baseline brightness
-    % Vb: the variance of a 'dim' pixel due to electronic and dark noise
-    % Vk: the slope of the variance-brightness relationship
-    firstValidFrames = find(any(~nans, [1 2]),500, 'first');
-    varIM = var(IMs(:,:,firstValidFrames),0,3,"omitmissing");
-    varIM(nanFrac>0.4) = nan;
-    Vb = params.VIF*prctile(varIM, 10, 'all');
-    varPred = mean(IMb(:,:,firstValidFrames),3,'omitmissing').* mean(vIM(:,:,firstValidFrames),3,'omitmissing');
-    selBright = varPred>prctile(varPred(:), 90);
-    Vk = prctile((varIM(selBright)-(Vb/params.VIF))./varPred(selBright), 10);
+%estimate Vb and Vk, parameters for estimating variance from baseline brightness
+% Vb: the variance of a 'dim' pixel due to electronic and dark noise
+% Vk: the slope of the variance-brightness relationship
+firstValidFrames = find(any(~nans, [1 2]),500, 'first');
+varIM = var(IMs(:,:,firstValidFrames),0,3,"omitmissing");
+varIM(nanFrac>0.4) = nan;
+Vb = params.VIF*prctile(varIM, 10, 'all');
+varPred = mean(IMb(:,:,firstValidFrames),3,'omitmissing').* mean(vIM(:,:,firstValidFrames),3,'omitmissing');
+selBright = varPred>prctile(varPred(:), 90);
+Vk = prctile((varIM(selBright)-(Vb/params.VIF))./varPred(selBright), 10);
 
-    %Highpass filter in time; This must occur before DoG to avoid edge artifacts
-    IMf = IMf - IMb; 
+%Highpass filter in time; This must occur before DoG to avoid edge artifacts
+IMf = IMf - IMb; 
 
-    stdIM = sqrt(max(0,Vk.*IMb.*vIM)+Vb); %compute standard deviation
-else
-    IMs = smoothdata(IMf, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
-    %Highpass filter in time; This must occur before DoG to avoid edge artifacts
-    IMb = smoothdata(IMs, 3, 'movmedian', baselineWindow, 'omitnan');
-    IMf = IMf - IMb;   %- smoothdata(IMf, 3, 'movmedian', baselineWindow, 'omitnan');
-
-    firstValidFrames = find(any(~nans, [1 2]),500, 'first');
-    initStdIM = mad(IMs(:,:,firstValidFrames) - IMb(:,:,firstValidFrames),1,3) ./ 0.6741891400433162.*sqrt(ceil(denoiseWindow/2));
-    bStd = params.VIF*prctile(initStdIM,10,'all');
-    % MAD-based robust standard deviation estimate
-    stdIM = max(bStd,movmad(IMs - IMb,baselineWindow,3,'omitmissing') ./ 0.6741891400433162.*sqrt(ceil(denoiseWindow/2)));
-end
+stdIM = sqrt(max(0,Vk.*IMb.*vIM)+Vb); %compute standard deviation
 %divide by uncertainty to get a Z-score
 IMf = IMf./stdIM;
 clear IMb vIM
@@ -129,7 +116,7 @@ summaryEroded(~valid) = nan;
 
 skIm(~valid) = nan;
 
-thetaf = getActImPeaks(summaryEroded,params.peakth,[],params.peakFuncOpt,params.actImHeteroscedasticNoise,params.minPeakDistance);
+thetaf = getActImPeaks(summaryEroded,params.peakth,[],params.minPeakDistance);
 
 P.row = thetaf(:,2);
 P.col = thetaf(:,3);
@@ -146,85 +133,4 @@ if doPlot
     figure, imagesc(summaryEroded); %hAx2 = gca;
 end
 
-end
-
-function val = gaussianPeaksIntegrated(theta, yxdata)
-% Same interface as original:
-% theta  : N×4  [A, mux, muy, sigma]
-% yxdata : M×2  pixel centers [x, y]
-% val    : M×1  integrated Gaussian over each pixel
-
-x = yxdata(:,1);
-y = yxdata(:,2);
-
-% --- infer pixel size from grid ---
-xu = unique(x);
-yu = unique(y);
-
-dx = median(diff(xu));
-dy = median(diff(yu));
-
-% build edges
-xEdges = [xu(1)-dx/2; (xu(1:end-1)+xu(2:end))/2; xu(end)+dx/2];
-yEdges = [yu(1)-dy/2; (yu(1:end-1)+yu(2:end))/2; yu(end)+dy/2];
-
-W = numel(xu);
-H = numel(yu);
-
-% reshape index map
-[~, xIdx] = ismember(x, xu);
-[~, yIdx] = ismember(y, yu);
-
-% --- parameters ---
-A  = theta(:,1).';   % 1×N
-mx = theta(:,2).';
-my = theta(:,3).';
-s  = max(theta(:,4).', eps);
-
-c   = sqrt(pi/2);
-rt2 = sqrt(2);
-
-% --- integrate in x (W×N) ---
-xL = xEdges(1:end-1);
-xR = xEdges(2:end);
-Ix = c .* s .* ( ...
-    erf((xR - mx)./(rt2*s)) - ...
-    erf((xL - mx)./(rt2*s)) );
-
-% --- integrate in y (H×N) ---
-yB = yEdges(1:end-1);
-yT = yEdges(2:end);
-Iy = c .* s .* ( ...
-    erf((yT - my)./(rt2*s)) - ...
-    erf((yB - my)./(rt2*s)) );
-
-% --- combine to full image ---
-img = (Iy .* A) * Ix.';   % H×W
-
-% --- return in original point ordering ---
-val = img(sub2ind([H W], yIdx, xIdx));
-end
-
-
-function val = gaussianPeaks(theta, yxdata)
-
-y = yxdata(:,1);
-x = yxdata(:,2);
-
-A  = theta(:,1).';
-my = theta(:,2).';
-mx = theta(:,3).';
-s  = theta(:,4).';
-
-inv2s2 = 1 ./ (2 * s.^2);
-
-dx = x - mx;
-dy = y - my;
-
-E = exp( -(dx.^2 + dy.^2) .* inv2s2 );
-val = E * A.';
-end
-
-function loss = objFun(theta, yxdata, zdata, lambda)
-loss = mean((gaussianPeaksIntegrated(theta,yxdata) - zdata).^2) + lambda * mean(abs(theta(:,1)));
 end

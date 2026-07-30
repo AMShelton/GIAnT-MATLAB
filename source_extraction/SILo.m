@@ -9,16 +9,10 @@ else
     params = setParams('SILo');
 end
 % Fixed values; user/GUI/JSON cannot override these in SILo
-params.poissBasedStdIM = 1;
-params.peakFuncOpt = 2;
-params.actImHeteroscedasticNoise = 0;
-params.dimStdMethod = false;
 params.minBaseline = 0.01;
 if ~nargin
     [trialTablefn, dr] =  uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5' );
 else
-    %parse dr
-    %_or_pathToTrialTable
     if exist(dr_or_pathToTrialTable, 'dir')
         dr = dr_or_pathToTrialTable;
         trialTablefn = 'trial_table.h5';
@@ -33,9 +27,6 @@ params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''
 %confirm that all files exist (also populates source_extraction.fn_raw)
 [trialTable, keepTrials] = verifyFiles(trialTablefn, dr);
 mocodr = fullfile(trialTable.savedr, 'motion_correction');
-% for dmdKey = fieldnames(trialTable.slap2_info.ref_stack)'
-%     trialTable.slap2_info.ref_stack.(dmdKey{1}).IM = []; %this uses a lot of memory and we won't need it
-% end
 nDMDs = size(trialTable.filename,1); %the trial table has size #DMDs x # trials; Bergamo is treated as '1 DMD'
 nTrials = size(trialTable.filename,2);
 
@@ -75,7 +66,7 @@ if params.drawUserRois
                 ROIs(DMDix).roiData = [];
                 continue
             end
-            %load image data (prefer meanIM from alignment H5 of same trial; matches mean(IM,[3 4]) after H,W,C,T reshape)
+            %load image data (prefer meanIM from alignment H5)
             [~, fn, ext] = fileparts(trialTable.motion_correction.fn_reg_ds{DMDix,firstValidTrial});
             adataFn = trialTable.motion_correction.fn_adata{DMDix, firstValidTrial};
             aDataAnnot = loadStructFromH5(fullfile(mocodr, adataFn));
@@ -128,7 +119,7 @@ for DMDix = nDMDs:-1:1
     params.numChannels = numChannels;
     params.alignHz = aData.alignHz;
     if ~strcmpi(params.microscope, 'SLAP2')
-        params.analyzeHz = 1/aData.frametime; %analyze conventional recordings at the acquisitoin framerate
+        params.analyzeHz = 1/aData.frametime; %analyze conventional recordings at the acquisition framerate
     end
     if isfield(aData, 'slap2') && isfield(aData.slap2, 'Z_depths')
         exptSummary.Z(DMDix) = aData.slap2.Z_depths;
@@ -164,7 +155,7 @@ for DMDix = nDMDs:-1:1
         
         if poolsize~=nWorkers ||  ~strcmpi(class(p), 'parallel.ProcessPool')
             delete(gcp('nocreate'));
-            parpool('processes',nWorkers); %limit the number of workers to avoid running out of RAM 
+            parpool('processes',nWorkers); %limit the number of workers to avoid running out of RAM
         end
     else
         delete(gcp('nocreate'));
@@ -172,11 +163,11 @@ for DMDix = nDMDs:-1:1
 
     %Perform Localizations
     disp('Loading data and performing localizations...')
-    mIM = cell(1, nTrials); aIM = cell(1,nTrials); alignData = cell(1, nTrials); peaks = cell(1, nTrials); discardFrames = cell(1,nTrials); %rawIMs = cell(1,nTrials)
+    mIM = cell(1, nTrials); aIM = cell(1,nTrials); alignData = cell(1, nTrials); peaks = cell(1, nTrials); discardFrames = cell(1,nTrials);
     fns = trialTable.motion_correction.fn_reg_ds(DMDix, :);
     parfor trialIx = 1:nTrials
         if keepTrials(DMDix,trialIx)
-            [~, mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}]= loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params); %rawIMs{trialIx}
+            [~, mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}]= loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params);
         end
     end
     %Assemble same-sized mean images from different-sized trial means
@@ -188,7 +179,6 @@ for DMDix = nDMDs:-1:1
         tmp =  aIM{trialIx};
         activIM(1:size(tmp,1),1:size(tmp,2),:,trialIx) = tmp;
     end
-    params.sz = size(meanIM, [1 2]);
 
     %Make template
     disp('Making template for aligning across trials...')
@@ -205,19 +195,18 @@ for DMDix = nDMDs:-1:1
     motOutput = nan(2,nTrials);
     Mpad = nan([size(template) size(M,3)]);
     Mpad(maxshift+(1:size(M,1)), maxshift+(1:size(M,2)),:) = M;
-    %clear M
 
     fillval = min(template(:),[], 'omitnan')-1;
     tFFT = fft2(max(template, fillval));
     for trialIx = nTrials:-1:1
         if ~keepTrials(DMDix,trialIx) || all(isnan(activIM(:,:,1,trialIx)), 'all')
             disp(['skipping trial, dmd:' int2str(trialIx) ' ' int2str(DMDix)])
-            continue %skip
+            continue
         end
         disp(['trial: ' int2str(trialIx)])
         
         output1 = dftregistration_clipped(tFFT, fft2(max(Mpad(:,:,trialIx), fillval)),1,80);
-        mot1 = [-output1(3) -output1(4)]; %xcorr2_nans(Mpad(:,:,trialIx), template, [-output1(3) ; -output1(4)], maxshift);
+        mot1 = [-output1(3) -output1(4)];
         [motOutput(:,trialIx), corrCoeff(trialIx)] = xcorr2_nans(Mpad(:,:,trialIx), template, round(mot1'), maxshift);
         [rr,cc] = ndgrid(1:size(meanIM,1), 1:size(meanIM,2));
 
@@ -226,36 +215,14 @@ for DMDix = nDMDs:-1:1
         end
         actAligned(:,:,1,trialIx) = interp2(activIM(:,:,1,trialIx), cc+motOutput(2,trialIx), rr+motOutput(1,trialIx));
     end
-    %clear Mpad activIM
 
     %identify outliers in alignment quality to determine valid trials
-    ccf = corrCoeff;
-    corrThresh = min(0.90, median(ccf, 'omitnan')-2*std(ccf, 'omitmissing'));
+    corrThresh = min(0.90, median(corrCoeff, 'omitnan')-2*std(corrCoeff, 'omitmissing'));
     actValidPix = squeeze(mean(~isnan(actAligned(:,:,1,:)), [1 2]));
-    validTrials= find(ccf(:)>corrThresh & actValidPix(:)>mean(actValidPix)/2);
+    validTrials= find(corrCoeff(:)>corrThresh & actValidPix(:)>mean(actValidPix)/2);
     exptSummary.meanIM{DMDix} = mean(meanAligned(:,:,:,validTrials),4, 'omitnan');
-    actIM = prctile(actAligned(:,:,:,validTrials),80,4);  %mean(actAligned(:,:,:,validTrials), 4, 'omitnan');
-    nanFrac = mean(isnan(actAligned(:,:,:,validTrials)), 4);
-    actIM(nanFrac>0.6) = nan;
-    exptSummary.actIM{DMDix} = actIM;
 
-    %accumulate peaks, only from valid trials
-    peaksCat = struct;
-    for vTrialIx = 1:length(validTrials)
-        trialIx = validTrials(vTrialIx);
-        if ~isfield(peaksCat, 'row')
-            peaksCat.row = peaks{trialIx}.row - motOutput(1,trialIx);
-            peaksCat.col = peaks{trialIx}.col - motOutput(2,trialIx);
-            peaksCat.val = peaks{trialIx}.val;
-        else
-            peaksCat.row = cat(1, peaksCat.row, peaks{trialIx}.row - motOutput(1,trialIx));
-            peaksCat.col = cat(1, peaksCat.col, peaks{trialIx}.col - motOutput(2,trialIx));
-            peaksCat.val = cat(1, peaksCat.val, peaks{trialIx}.val);
-        end
-    end
-
-    %select sources
-    %strategy 1: find peaks directly on aligned activity image
+    %select sources on aligned activity image
     actIM = mean(actAligned(:,:,:,validTrials), 4, 'includenan');
     actIM = actIM ./ 10^(floor(log10(max(actIM(:))))-1);
     nanFrac = mean(isnan(actAligned(:,:,:,validTrials)), 4);
@@ -276,11 +243,11 @@ for DMDix = nDMDs:-1:1
         end
     end
 
-    thetaf = getActImPeaks(actIM,params.peakth,somaMask,params.peakFuncOpt,params.actImHeteroscedasticNoise,params.minPeakDistance);
+    thetaf = getActImPeaks(actIM,params.peakth,somaMask,params.minPeakDistance);
 
     sources = struct('R', [], 'C', [], 'V', []);
     totalPix = sum(~isnan(actIM(:)) & ~somaMask(:));
-    if totalPix == 0 | isempty(thetaf)
+    if totalPix == 0 || isempty(thetaf)
         k = 0;
     else
         sources.R = round(thetaf(:,2));
@@ -305,9 +272,9 @@ for DMDix = nDMDs:-1:1
         selPix(:,:,sourceIx) = imdilate(selPix(:,:,sourceIx), strel('disk',params.selRadius));
     end
     pxAlwaysValid = mean(isnan(meanAligned(:,:,1,validTrials)),4)<params.nanThresh;
-    selPix = selPix & repmat(pxAlwaysValid, 1, 1, k); %ADJUST SELECTED PIXELS NOT TO INCLUDE POORLY MEASURED PIXELS
+    selPix = selPix & repmat(pxAlwaysValid, 1, 1, k); %exclude poorly measured pixels
 
-    %prune any sources that got clipped by pixel selection process
+    %prune any sources that got clipped by pixel selection
     centerValid = pxAlwaysValid(sub2ind(size(pxAlwaysValid), sources.R, sources.C));
     keepSources = squeeze(sum(selPix, [1 2]))>5 & centerValid(:);
     if k > 0
@@ -330,23 +297,21 @@ for DMDix = nDMDs:-1:1
 
     if any(keepSources)
         fns = trialTable.source_extraction.fn_raw(DMDix,:);
-            if strcmpi(params.microscope, 'SLAP2')
-                if isfield(trialTable, 'datadr') && ~isempty(trialTable.datadr)
-                    trialDataDr = trialTable.datadr;
-                else
-                    trialDataDr = dr;
-                end
-                fls = trialTable.slap2_info.first_line(DMDix,:);
-                els = trialTable.slap2_info.last_line(DMDix,:);
-                E = processAllTrials_Async(trialDataDr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
-            else %BERGAMO (registered movies live under motion_correction)
-                fls = cell(1,numel(fns)); %first frame; leave empty for most uses
-                els = cell(1,numel(fns)); %last frame; leave empty for most uses
-                E = processAllTrials_Async(mocodr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
+        if strcmpi(params.microscope, 'SLAP2')
+            if isfield(trialTable, 'datadr') && ~isempty(trialTable.datadr)
+                trialDataDr = trialTable.datadr;
+            else
+                trialDataDr = dr;
             end
-
-        %per-trial images
-        exptSummary.E(:,DMDix) = E; %experiment data
+            fls = trialTable.slap2_info.first_line(DMDix,:);
+            els = trialTable.slap2_info.last_line(DMDix,:);
+            E = processAllTrials_Async(trialDataDr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
+        else %BERGAMO (registered movies live under motion_correction)
+            fls = cell(1,numel(fns));
+            els = cell(1,numel(fns));
+            E = processAllTrials_Async(mocodr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
+        end
+        exptSummary.E(:,DMDix) = E;
     end
     exptSummary.selPix{DMDix} = any(selPix,3);
     exptSummary.sources{DMDix} = sources;
@@ -357,14 +322,13 @@ for DMDix = nDMDs:-1:1
     exptSummary.perTrialMeanIMsAligned{DMDix} = meanAligned;
     exptSummary.perTrialActIms{DMDix} = actIM;
     exptSummary.perTrialActIMsAligned{DMDix} = actAligned;
-    exptSummary.perTrialAlignmentOffsets{DMDix} = motOutput; %the alignment vector for each trial
+    exptSummary.perTrialAlignmentOffsets{DMDix} = motOutput;
 
-    clear meanAligned meanIM actAligned F0selDS E
+    clear meanAligned meanIM actAligned E
 end
 
-% Shut down the parallel pool explicitly here so all thread-pool arrays are
+% Shut down the parallel pool explicitly so thread-pool arrays are
 % fully materialised into regular MATLAB memory before the HDF5 saves.
-% The pause gives the pool time to fully release shared memory before h5write.
 delete(gcp('nocreate'));
 pause(5);
 
@@ -372,7 +336,6 @@ params.endTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T'
 
 trialTable.source_extraction.analysis_params = params;
 
-%prepare file for saving
 exptSummary.params = params;
 exptSummary.trialTable = trialTable;
 exptSummary.dr = dr;
@@ -389,7 +352,6 @@ if isempty(d) || d.bytes == 0
     fprintf(2, 'WARNING: experiment_summary.h5 is missing or empty after save.\n');
 else
     fprintf('experiment_summary.h5 written (%d MB)\n', round(d.bytes/1e6));
-    % if sources were found, spot-check that each trace dataset is readable
     for DMDix = 1:numel(exptSummary.sources)
         if isempty(exptSummary.sources{DMDix}) || ~isfield(exptSummary.sources{DMDix}, 'R') ...
                 || isempty(exptSummary.sources{DMDix}.R)
@@ -406,7 +368,7 @@ else
 end
 
 
-disp('Done summarize_LoCo')
+disp('Done SILo')
 end
 
 function trySave(saveFcn, label, maxAttempts)
@@ -425,8 +387,6 @@ for attempt = 1:maxAttempts
         fprintf(2, 'WARNING: Attempt %d/%d to save "%s" failed: %s\n', ...
             attempt, maxAttempts, label, ME.message);
         if attempt < maxAttempts
-            % Long pause to allow the thread pool to fully release shared
-            % memory asynchronously — the taint clears once shutdown completes.
             fprintf(2, 'Waiting 30s before retry...\n');
             pause(30);
         else

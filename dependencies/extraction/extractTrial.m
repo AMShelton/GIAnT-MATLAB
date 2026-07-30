@@ -5,24 +5,14 @@ Finv = double(Finv);
 sz = size(selPix);
 
 if isempty(params.photonScale) %If not provided, estimate the standard deviation of a dim pixel
-    if params.dimStdMethod
-        pxSTD = nan(1,size(Y_obs,1));
-        mY = nan(1,size(Y_obs,1));
-        for pxIx = 1:size(Y_obs,1)
-            [pxSTD(pxIx), mY(pxIx)] = std(Y_obs(pxIx,:,1),1./Finv(pxIx,:),2,'omitmissing');
-        end
-        selDim = mY(:)<prctile(mY,20);
-        params.photonScale = 4*prctile(pxSTD(selDim),90);
-    else
-        pxSTD = nan(1,size(Y_obs,1));
-        mY = nan(1,size(Y_obs,1));
-        for pxIx = 1:size(Y_obs,1)
-            [pxSTD(pxIx), mY(pxIx)] = std(Y_obs(pxIx,:,1),1./Finv(pxIx,:),2,'omitmissing');
-        end
-        Vb = prctile(pxSTD.^2, 5,'all');
-        selBright = mY(:) > prctile(mY(:), 40) & mY(:) < prctile(mY(:), 90);
-        params.photonScale = prctile((pxSTD(selBright).^2-Vb)./mY(selBright), 10);
+    pxSTD = nan(1,size(Y_obs,1));
+    mY = nan(1,size(Y_obs,1));
+    for pxIx = 1:size(Y_obs,1)
+        [pxSTD(pxIx), mY(pxIx)] = std(Y_obs(pxIx,:,1),1./Finv(pxIx,:),2,'omitmissing');
     end
+    Vb = prctile(pxSTD.^2, 5,'all');
+    selBright = mY(:) > prctile(mY(:), 40) & mY(:) < prctile(mY(:), 90);
+    params.photonScale = prctile((pxSTD(selBright).^2-Vb)./mY(selBright), 10);
 end
 
 %rescale data

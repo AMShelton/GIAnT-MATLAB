@@ -9,7 +9,6 @@ switch fnName
         params.nmfIter = 2;              tooltips.nmfIter = 'number of iterations of NMF refinement';
         params.dXY = 3;                  tooltips.dXY = 'how large sources can be (radius), pixels';
         params.photonScale = [];              tooltips.photonScale = 'roughly the single-photon amplitude. Leave empty to use default/estimate from data.';
-        % params.dimStdMethod = false;              tooltips.dimStdMethod = 'use dim pixel std method to estimate photon scale if not provided';
         % params.minBaseline = 1/10;              tooltips.minBaseline = 'minimum baseline for source extraction (normalized photon units)';
         params.lambda = 0.5;              tooltips.lambda = 'regularizer for source extraction';
         params.phi = 0.1;              tooltips.phi = 'parameter for how much to relax L1 during debiasing';
@@ -19,11 +18,8 @@ switch fnName
         params.activityChannel = 1;      tooltips.activityChannel = 'the channel of the original tiff image that contains the glutamate signal';
         params.tau_s = 0.03;             tooltips.tau_s = 'decay time constant of glutamate signal';
         params.tau2_s = 0.15;            tooltips.tau2_s = 'decay time constant of 2nd channel signal at synapses (usually spine calcium)';
-        % params.poissBasedStdIM = 0;      tooltips.poissBasedStdIM = 'use Poisson model to estimate stdIM';
         params.VIF = 1.38;                  tooltips.VIF = 'variance inflation factor for stdIM estimate (Poiss-based only)';
         params.peakth = 10;             tooltips.peakth = 'peak identification threshold (actIM z-score)';
-        % params.peakFuncOpt = 2;             tooltips.peakFuncOpt = 'peak fitting function (1=gaussian, 2=binned gaussian)';
-        % params.actImHeteroscedasticNoise = 0;             tooltips.actImHeteroscedasticNoise = 'noise in actIM modeled as heteroscedastic';
         params.minPeakDistance = 1;     tooltips.minPeakDistance = 'minimum Chebyshev distance between peaks (pixels); 1 = adjacent peaks allowed';
         params.nParallelWorkers = 12;    tooltips.nWorkers = 'number of parallel workers';
         params.drawUserRois = true;     tooltips.drawUserRois = 'pop up a GUI to annotate user ROIs?';  
@@ -63,7 +59,6 @@ switch fnName
         params.maxshift = 50; tooltips.maxshift = 'Maximum frame offset,in pixels';
         params.clipShift = 10; tooltips.clipShift = 'Maximum allowable shift per frame';
         params.nWorkers = 4; tooltips.nWorkers = 'number of parallel workers';
-        params.overwriteExisting = false; tooltips.overwriteExisting = 'Realign and overwrite any existing files?';
         params.removeLines = 4; tooltips.removeLines = 'remove this many flyback lines from the top of each image';
         params.ds_time = 3; tooltips.ds_time = 'movies are downsampled (2^ds_time)x in time for alignment';
         params.frameRate = 0; tooltips.frameRate = 'imaging frame rate; if 0, calculated from metadata or set as default';
