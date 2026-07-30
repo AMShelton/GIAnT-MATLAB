@@ -18,7 +18,7 @@ switch fnName
         params.activityChannel = 1;      tooltips.activityChannel = 'the channel of the original tiff image that contains the glutamate signal';
         params.tau_s = 0.03;             tooltips.tau_s = 'decay time constant of glutamate signal';
         params.tau2_s = 0.15;            tooltips.tau2_s = 'decay time constant of 2nd channel signal at synapses (usually spine calcium)';
-        params.VIF = 1.38;                  tooltips.VIF = 'variance inflation factor for stdIM estimate (Poiss-based only)';
+        params.VIF = 1.38;                  tooltips.VIF = 'variance inflation factor for stdIM estimate';
         params.peakth = 10;             tooltips.peakth = 'peak identification threshold (actIM z-score)';
         params.minPeakDistance = 1;     tooltips.minPeakDistance = 'minimum Chebyshev distance between peaks (pixels); 1 = adjacent peaks allowed';
         params.nParallelWorkers = 12;    tooltips.nWorkers = 'number of parallel workers';
