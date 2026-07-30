@@ -12,7 +12,6 @@ end
 params.poissBasedStdIM = 1;
 params.peakFuncOpt = 2;
 params.actImHeteroscedasticNoise = 0;
-params.peakBufferSize = 0;
 params.dimStdMethod = false;
 params.minBaseline = 0.01;
 if ~nargin
@@ -277,7 +276,7 @@ for DMDix = nDMDs:-1:1
         end
     end
 
-    thetaf = getActImPeaks(actIM,params.peakth,somaMask,params.peakFuncOpt,params.actImHeteroscedasticNoise,params.peakBufferSize);
+    thetaf = getActImPeaks(actIM,params.peakth,somaMask,params.peakFuncOpt,params.actImHeteroscedasticNoise,params.minPeakDistance);
 
     sources = struct('R', [], 'C', [], 'V', []);
     totalPix = sum(~isnan(actIM(:)) & ~somaMask(:));

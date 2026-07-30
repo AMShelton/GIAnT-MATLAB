@@ -1,4 +1,4 @@
-function thetaf = getActImPeaks(actIM, peakth, exclusionMask, peakFuncOpt, heteroscedasticNoise, bufferSize)
+function thetaf = getActImPeaks(actIM, peakth, exclusionMask, peakFuncOpt, heteroscedasticNoise, minPeakDistance)
 % Defaults
 if nargin < 3 || isempty(exclusionMask)
     exclusionMask = false(size(actIM));
@@ -9,9 +9,11 @@ end
 if nargin < 5 || isempty(heteroscedasticNoise)
     heteroscedasticNoise = 1;
 end
-if nargin < 6 || isempty(bufferSize)
-    bufferSize = 0;
+if nargin < 6 || isempty(minPeakDistance)
+    minPeakDistance = 1;
 end
+minPeakDistance = max(1, minPeakDistance);
+peakExclusionSE = ones(2*minPeakDistance - 1);
 
 switch peakFuncOpt
     case 1
@@ -61,11 +63,7 @@ if sum(pTmp(:))
     iy = min(max(round(thetaf(:,2)), 1), size(actIM,1));
     ix = min(max(round(thetaf(:,3)), 1), size(actIM,2));
     pIM(sub2ind(size(actIM), iy, ix)) = true;
-    if bufferSize > 0
-        bufferMask = imdilate(pIM,ones(bufferSize));
-    else
-        bufferMask = pIM;
-    end
+    bufferMask = imdilate(pIM, peakExclusionSE);
 
     fitIM = zeros(size(actIM));
     fitIM(actSelPix) = peakFunc(thetaf,[actSelY,actSelX]);
@@ -172,11 +170,7 @@ if sum(pTmp(:))
         iy = min(max(round(thetaf(:,2)), 1), size(actIM,1));
         ix = min(max(round(thetaf(:,3)), 1), size(actIM,2));
         pIM(sub2ind(size(actIM), iy, ix)) = true;
-        if bufferSize > 0
-            bufferMask = imdilate(pIM,ones(bufferSize));
-        else
-            bufferMask = pIM;
-        end
+        bufferMask = imdilate(pIM, peakExclusionSE);
 
         fitIM(actSelPix) = peakFunc(thetaf,[actSelY,actSelX]);
         resIM = actIM - fitIM - mu_bg;

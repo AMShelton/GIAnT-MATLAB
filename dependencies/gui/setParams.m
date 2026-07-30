@@ -24,7 +24,7 @@ switch fnName
         params.peakth = 10;             tooltips.peakth = 'peak identification threshold (actIM z-score)';
         % params.peakFuncOpt = 2;             tooltips.peakFuncOpt = 'peak fitting function (1=gaussian, 2=binned gaussian)';
         % params.actImHeteroscedasticNoise = 0;             tooltips.actImHeteroscedasticNoise = 'noise in actIM modeled as heteroscedastic';
-        % params.peakBufferSize = 0;             tooltips.peakBufferSize = 'number of pixels to mask around each peak';
+        params.minPeakDistance = 1;     tooltips.minPeakDistance = 'minimum Chebyshev distance between peaks (pixels); 1 = adjacent peaks allowed';
         params.nParallelWorkers = 12;    tooltips.nWorkers = 'number of parallel workers';
         params.drawUserRois = true;     tooltips.drawUserRois = 'pop up a GUI to annotate user ROIs?';  
         params.motionThresh = 2.5;       tooltips.motionThresh = 'decrease this to be more stringent on motion correction when censoring frames';
