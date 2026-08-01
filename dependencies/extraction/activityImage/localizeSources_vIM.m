@@ -15,7 +15,7 @@ valid = mean(nans,3)<params.nanThresh; %a pixel must be imaged at least (1-nanTh
 if ~any(valid)
     warning('Recording had no valid pixels; likely too much motion')
     P = [];
-    summaryEroded = nan(sz(1:2));
+    skIm = nan(sz(1:2));
     return
 end
 if nargin<4
