@@ -27,7 +27,6 @@ switch fnName
         params.analyzeHz = 200;          tooltips.analyzeHz = 'frame rate used for analysis (SLAP2 only)';
         params.nanThresh = 0.33;         tooltips.nanThresh = 'Max fraction of samples that can be NaN for including a pixel in analysis';
         params.discardInitial_s = 0;     tooltips.discardInitial_s = 'time in seconds to remove from analysis at the start of each trial, to account for warmup';
-        params.operator = 'User';       tooltips.operator = 'person running the analysis';
     case 'MultiRoiRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshift = 40; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -38,7 +37,6 @@ switch fnName
         params.refStackTemplate = false; tooltips.refStackTemplate = 'Use ref stack as template';
         params.isReVolt = false; tooltips.isReVolt = 'select true for recordings with simultaneous red 1P imaging';
         params.includeIntegrationROIs = false; tooltips.includeIntegrationROIs = 'Use integration ROIs for alignment and TIFF generation?';
-        params.operator = 'User';       tooltips.operator = 'person running the analysis';
     case 'BandRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshiftXY = 25; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -53,7 +51,6 @@ switch fnName
         params.overwriteExisting = false; tooltips.overwriteExisting = 'Realign and overwrite any existing files?';
         params.integrationOnly = false; tooltips.integrationOnly = 'Align only on integration superpixels';
         params.saveTiffs = true; tooltips.saveTiffs = 'Save aligned tiff movies';
-        params.operator = 'User';       tooltips.operator = 'person running the analysis';
     case 'StripRegistration'
         params.maxshift = 50; tooltips.maxshift = 'Maximum frame offset,in pixels';
         params.clipShift = 10; tooltips.clipShift = 'Maximum allowable shift per frame';
@@ -101,5 +98,9 @@ if isfield(params, 'nParallelWorkers')
         params.nWorkers = params.nParallelWorkers;
     end
     params = rmfield(params, 'nParallelWorkers');
+end
+% Drop legacy provenance fields (not algorithm inputs)
+if isfield(params, 'operator')
+    params = rmfield(params, 'operator');
 end
 end
