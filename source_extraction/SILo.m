@@ -200,7 +200,7 @@ for DMDix = nDMDs:-1:1
     maxshift = 5;
     M = squeeze(sum(meanIM, 3));
     samples = find(keepTrials(DMDix,:)); samples = samples(unique(round(linspace(1,length(samples),20))));
-    template = makeTemplateMultiRoi(M(:,:,samples), maxshift);
+    template = makeConsensusTemplate(M(:,:,samples), maxshift);
 
     %align all mean images to template
     disp('Aligning across trials...')
