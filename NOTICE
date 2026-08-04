@@ -5,12 +5,13 @@ This repository is licensed under the MIT License (see LICENSE). The
 components below are subject to their own licenses.
 
 
-Fast_Tiff_Write (external dependency)
--------------------------------------
-Required for motion-correction TIFF writing (Fast_BigTiff_Write).
+Fast_Tiff_Write (vendored)
+--------------------------
+Path: dependencies/Fast_Tiff_Write/
 
-Source: https://github.com/rharkes/Fast_Tiff_Write
-Pin to commit: ddd50c3286ff5b013d1f0478e8a5bd0d60978a75
+Required for motion-correction TIFF writing (Fast_BigTiff_Write).
+Vendored from https://github.com/rharkes/Fast_Tiff_Write at commit
+ddd50c3286ff5b013d1f0478e8a5bd0d60978a75.
 License: GNU General Public License v3.0 (or later)
 Authors: R. Harkes; BigTIFF support by O. Hernandez
 
