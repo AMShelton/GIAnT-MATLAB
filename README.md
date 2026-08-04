@@ -19,11 +19,21 @@ The earliest version of MATLAB this code has been tested on is MATLAB R2023b.
 
 ### External packages
 
+Add each required package to the MATLAB path (e.g. `addpath(genpath(...))`).
+
+* **[Fast_Tiff_Write](https://github.com/rharkes/Fast_Tiff_Write)** — required for motion-correction TIFF writing (`Fast_BigTiff_Write`). Use commit [`ddd50c3286ff5b013d1f0478e8a5bd0d60978a75`](https://github.com/rharkes/Fast_Tiff_Write/commit/ddd50c3286ff5b013d1f0478e8a5bd0d60978a75). Do **not** use a later revision without checking TIFF orientation compatibility (upstream changed orientation after this commit).
+
+  ```bash
+  git clone https://github.com/rharkes/Fast_Tiff_Write.git
+  cd Fast_Tiff_Write
+  git checkout ddd50c3286ff5b013d1f0478e8a5bd0d60978a75
+  ```
+
+* **[NoRMCorre](https://github.com/flatironinstitute/NoRMCorre)** — required for `StripRegistration` motion correction.
+
 * **SLAP2 data reader (only needed for processing SLAP2 data)** — add one of:
   - **[Slap2DataReader](https://github.com/m-xie/Slap2DataReader)** - A MATLAB package for reading SLAP2 data
   - **`slap2` from MBF Bioscience** — MATLAB package for SLAP2 microscope control
-
-* **[NoRMCorre](https://github.com/flatironinstitute/NoRMCorre)** - A MATLAB package for motion correction
 
 ## Epoch and Analysis Trial
 For each experiment we run through the pipeline, we break down the data into epochs and analysis trials.

@@ -14,8 +14,9 @@ Pin to commit: ddd50c3286ff5b013d1f0478e8a5bd0d60978a75
 License: GNU General Public License v3.0 (or later)
 Authors: R. Harkes; BigTIFF support by O. Hernandez
 
-Do not use a later upstream revision without verifying TIFF
-orientation compatibility with GIAnT (see repository README).
+Clone and check out that commit, then add the package to the MATLAB path.
+Do not use a later upstream revision without verifying TIFF orientation
+compatibility with GIAnT (see repository README).
 
 
 NoRMCorre (external dependency)
