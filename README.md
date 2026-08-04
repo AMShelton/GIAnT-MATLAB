@@ -1,14 +1,14 @@
 # GIAnT-MATLAB
-Glutamate Imaging Analysis Toolbox, MATLAB implementation
 
+**GIAnT** (Glutamate Imaging Analysis Toolbox) is a MATLAB pipeline for processing glutamate imaging data.
 
 <img width="1594" height="300" alt="GIAnT_schematic" src="GIAnT_schematic_horizontal.png" />
 
-## Requirements
+## Install
 
 ### MATLAB
 
-The earliest version of MATLAB this code has been tested on is MATLAB R2023b.
+Tested from **MATLAB R2023b** onward.
 
 **Required toolboxes**
 * Parallel Computing Toolbox
@@ -17,9 +17,15 @@ The earliest version of MATLAB this code has been tested on is MATLAB R2023b.
 * Signal Processing Toolbox
 * Statistics and Machine Learning Toolbox
 
-### External packages
+Clone this repository and add it (and its subfolders) to the MATLAB path:
 
-Add each required package to the MATLAB path (e.g. `addpath(genpath(...))`).
+```matlab
+addpath(genpath('/path/to/GIAnT-MATLAB'));
+```
+
+Also add any external packages below to the path (e.g. `addpath(genpath(...))`).
+
+### External packages
 
 * **[Fast_Tiff_Write](https://github.com/rharkes/Fast_Tiff_Write)** — required for motion-correction TIFF writing (`Fast_BigTiff_Write`). Use commit [`ddd50c3286ff5b013d1f0478e8a5bd0d60978a75`](https://github.com/rharkes/Fast_Tiff_Write/commit/ddd50c3286ff5b013d1f0478e8a5bd0d60978a75). Do **not** use a later revision without checking TIFF orientation compatibility (upstream changed orientation after this commit).
 
@@ -29,22 +35,58 @@ Add each required package to the MATLAB path (e.g. `addpath(genpath(...))`).
   git checkout ddd50c3286ff5b013d1f0478e8a5bd0d60978a75
   ```
 
-* **[NoRMCorre](https://github.com/flatironinstitute/NoRMCorre)** — required for `StripRegistration` motion correction.
+* **[NoRMCorre](https://github.com/flatironinstitute/NoRMCorre)** — required for the default (`StripRegistration`) motion-correction path.
 
-* **SLAP2 data reader (only needed for processing SLAP2 data)** — add one of:
-  - **[Slap2DataReader](https://github.com/m-xie/Slap2DataReader)** - A MATLAB package for reading SLAP2 data
-  - **`slap2` from MBF Bioscience** — MATLAB package for SLAP2 microscope control
+* **SLAP2 data reader (only needed for SLAP2 data)** — add one of:
+  - **[Slap2DataReader](https://github.com/m-xie/Slap2DataReader)**
+  - **`slap2` from MBF Bioscience**
 
-## Epoch and Analysis Trial
-For each experiment we run through the pipeline, we break down the data into epochs and analysis trials.
+## How to run (default / non-SLAP2)
 
-Epochs are full experimental sessions that can be aligned with each other (i.e. the same field of view and regions of interest are being imaged). Analysis trials are generally contiguous subsets (in time) of an epoch. These analysis trials may not align exactly with experimental trials.
+Typical flow for standard multi-TIFF / ScanImage-style recordings:
 
-For SLAP2, analysis trials are the experimental trials if the data was collected using the multi-trial functions of the SLAP2 and each trial is saved off the microscope in a different file. If data was continuously collected on SLAP2, the experiment will be split up into analysis trials of length 200000 lines (~20 sec) to help parallelize processing.
+1. **`buildTrialTable`** — choose a data folder (and optional save folder). Writes `trial_table.h5` under the save directory.
+2. **`StripRegistration`** — select that `trial_table.h5` (or pass its path). Writes registered TIFFs and `*_ALIGNMENTDATA.h5` under `motion_correction/`. Requires NoRMCorre and Fast_Tiff_Write on the path.
+3. **Optional: `annotateROIs`** — draw exclude / soma ROIs; writes `annotations.h5`.
+4. **`SILo`** — select the same `trial_table.h5` (or its folder). In the parameter GUI, keep **microscope** on the non-SLAP2 option (do not select `SLAP2`). Writes `experiment_summary.h5` and `per_trial_summary.h5` under `source_extraction/`.
 
-For data not collected on SLAP2, the current GIAnT pipeline sets Epochs to be 1 and each file that is selected to be processed is an analysis trial. These analysis trials must be able to be aligned to one another.
+Example (interactive prompts omitted when paths are passed):
 
-## Pipeline Outputs
+```matlab
+buildTrialTable;                          % or buildTrialTable(datadr, savedr)
+StripRegistration;                        % or StripRegistration(pathToTrialTable)
+% annotateROIs;                           % optional
+SILo;                                     % or SILo(pathToTrialTable)
+```
+
+## How to run (SLAP2)
+
+1. **`buildTrialTableSLAP2`** — builds `trial_table.h5` (including `slap2_info`) for SLAP2 `.dat` / metadata layouts.
+2. **Motion correction** — choose one:
+   - **`MultiRoiRegistration`** — multi-ROI raster SLAP2
+   - **`BandRegistration`** — band-scan SLAP2  
+   Requires a SLAP2 reader and Fast_Tiff_Write on the path (NoRMCorre is not used on these paths).
+3. **Optional: `annotateROIs`**
+4. **`SILo`** — in the parameter GUI, set **microscope** to `SLAP2`.
+
+```matlab
+buildTrialTableSLAP2;
+MultiRoiRegistration;   % or BandRegistration
+% annotateROIs;
+SILo;                   % microscope = SLAP2
+```
+
+## Epoch and analysis trial
+
+For each experiment we break the data into **epochs** and **analysis trials**.
+
+Epochs are full experimental sessions that can be aligned with each other (same field of view / ROIs). Analysis trials are contiguous subsets (in time) of an epoch; they may not match experimental trial boundaries exactly.
+
+**SLAP2:** analysis trials are the experimental trials when multi-trial acquisition wrote one file per trial. For continuous SLAP2 acquisition, the experiment is split into analysis trials of length 200000 lines (~20 s) to help parallelize processing.
+
+**Non-SLAP2:** the pipeline sets epoch = 1 and treats each selected file as an analysis trial. Those trials must be alignable to one another.
+
+## Pipeline outputs
 
 ### Reading H5 outside MATLAB
 
@@ -100,8 +142,8 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
  ├ 📈 motionDSz           (BandRegistration always; MultiRoiRegistration when refStackTemplate is enabled)
  ├ 🖼️ meanIM              (StripRegistration and MultiRoiRegistration only; not written by BandRegistration)
  ├ 📈 recNegErr           (StripRegistration and MultiRoiRegistration only; not written by BandRegistration)
- ├ 📈 motionC             (StripRegistration / Bergamo only)
- ├ 📈 motionR             (StripRegistration / Bergamo only)
+ ├ 📈 motionC             (StripRegistration only)
+ ├ 📈 motionR             (StripRegistration only)
  ├ 📈 motionZ             (reserved; not written by any current script)
  ├ 📈 brightnessDS        (BandRegistration only)
  ├ 📈 logLikelihoodDS     (BandRegistration only)
@@ -123,7 +165,7 @@ The motion correction scripts save out a H5 file ending in `_ALIGNMENTDATA.h5` t
 
 ### Manual Annotations
 
-In our pipeline, users can manually annotate pixels to exclude from analysis or pixels that correspond to soma, whose signals should be extracted (the pipeline has typically been used for single-neuron simultaneous glutamate + calcium imaging experiments on the SLAP2). When ROIs are annotated (either in `annotateROIs.m` or `SILo.m`), information about the ROIs are saved in the `annotations.h5` file. The structure of that file is as below
+In our pipeline, users can manually annotate pixels to exclude from analysis or pixels that correspond to soma, whose signals should be extracted (e.g. single-neuron simultaneous glutamate + calcium imaging). When ROIs are annotated (either in `annotateROIs.m` or `SILo.m`), information about the ROIs are saved in the `annotations.h5` file. The structure of that file is as below
 
 ```
 🗄️ annotations.h5
@@ -251,7 +293,7 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 | `motion_correction` | — | group | Written by motion correction stage |
 | `motion_correction/fn_reg_ds` | nPaths x total trials | string | Registered + downsampled tif filename |
 | `motion_correction/fn_adata` | nPaths x total trials | string | Alignment metadata `_ALIGNMENTDATA.h5` filename |
-| `motion_correction/fn_raw` | nPaths x total trials | string | Registered raw-resolution file (Bergamo only) |
+| `motion_correction/fn_raw` | nPaths x total trials | string | Registered raw-resolution file (`StripRegistration` only) |
 | `motion_correction/registration_failed` | nPaths x total trials | bool | Whether registration failed |
 | `motion_correction/first_line_original` | nPaths x total trials | integer | Original `slap2_info/first_line` before reVolt adjustment |
 | `motion_correction/align_params` | — | struct | Alignment parameters used |
@@ -265,7 +307,7 @@ A summary file of per-trial data is also saved as `per_trial_summary.h5` for any
 | --- | --- | --- | --- |
 | `row_major` | 1 x 1 | uint8 | Layout flag: `1` = row-major (README sizes match h5py `shape`); `0` = column-major (MATLAB `size()`). **If absent, assume column-major (`0`).** |
 
-Top-level fields written by **all three** motion correction scripts: `numChannels`, `frametime`, `alignHz`, `motionDSc`, `motionDSr`. `meanIM` and `recNegErr` are written by `StripRegistration.m` and `MultiRoiRegistration.m` but **not** by `BandRegistration.m`. `motionC`/`motionR` are written only by `StripRegistration.m` (Bergamo); `DSframes`/`registrationFailed` by both SLAP2 scripts (`MultiRoiRegistration.m` and `BandRegistration.m`); `brightnessDS`/`logLikelihoodDS` by `BandRegistration.m` only. The `slap2` group is only populated for SLAP2 experiments.
+Top-level fields written by **all three** motion correction scripts: `numChannels`, `frametime`, `alignHz`, `motionDSc`, `motionDSr`. `meanIM` and `recNegErr` are written by `StripRegistration.m` and `MultiRoiRegistration.m` but **not** by `BandRegistration.m`. `motionC`/`motionR` are written only by `StripRegistration.m`; `DSframes`/`registrationFailed` by both SLAP2 scripts (`MultiRoiRegistration.m` and `BandRegistration.m`); `brightnessDS`/`logLikelihoodDS` by `BandRegistration.m` only. The `slap2` group is only populated for SLAP2 experiments.
 
 | Field | Size | Data type | Description |
 | --- | --- | --- | --- |
@@ -279,8 +321,8 @@ Top-level fields written by **all three** motion correction scripts: `numChannel
 | `recNegErr` | 1 x nDSframes | numeric | Per-frame reconstruction error; standard alignment QC metric and used for motion censoring (not written by BandRegistration) |
 | `brightnessDS` | nDSframes x channels | numeric | (BandRegistration only) Per-channel brightness/scaling factor at the selected motion shift |
 | `logLikelihoodDS` | nDSframes x 1 | numeric | (BandRegistration only) Peak log-likelihood of the motion match per downsampled frame |
-| `motionC` | 1 x nFrames | numeric | Column shift upsampled to raw frame rate (Bergamo only) |
-| `motionR` | 1 x nFrames | numeric | Row shift upsampled to raw frame rate (Bergamo only) |
+| `motionC` | 1 x nFrames | numeric | Column shift upsampled to raw frame rate (`StripRegistration` only) |
+| `motionR` | 1 x nFrames | numeric | Row shift upsampled to raw frame rate (`StripRegistration` only) |
 | `motionZ` | 1 x nFrames | numeric | (reserved; not written by any current script) Z shift upsampled to raw frame rate |
 | `DSframes` | 1 x nDSframes | integer | Line indices of each downsampled frame (SLAP2 only: MultiRoiRegistration and BandRegistration) |
 | `registrationFailed` | 1 x 1 | bool | Whether registration failed for this trial (SLAP2 only: MultiRoiRegistration and BandRegistration) |
