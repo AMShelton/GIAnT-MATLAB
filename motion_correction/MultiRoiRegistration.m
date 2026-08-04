@@ -313,25 +313,6 @@ try
 
         %compute aligned image and variance factor
         [A1,V1(:,:,DSframeIx)] = interpFrame(M1, viewC(1,:)+motionDSc(DSframeIx), viewR(:,1)+motionDSr(DSframeIx), freshness);
-        
-        % %check for regrets
-        % if numChannels==2
-        %     A2 = interpFrame(M2, viewC(1,:)+motionDSc(DSframeIx), viewR(:,1)+motionDSr(DSframeIx), freshness);
-        %     M = sqrt(A1+A2);
-        % else
-        %     M = sqrt(A1);
-        % end
-        % [motOutput2, corrCoeff2] = xcorr2_nans_weighted(M, 1./V1(:,:,DSframeIx), template, [0  ; 0], 3);
-        % %[motOutput2, corrCoeff2] = xcorr2_nans(A1, template, [0  ; 0], 3);
-        % if any(abs(motOutput2)>0.5)
-        %     motOutput
-        %     motOutput2
-        %     DSframeIx  
-        %     keyboard
-        %     motionDSr(DSframeIx) = motionDSr(DSframeIx)+motOutput2(1);
-        %     motionDSc(DSframeIx) = motionDSc(DSframeIx)+motOutput2(2);
-        %     [A1,V1(:,:,DSframeIx)] = interpFrame(M1, viewC(1,:)+motionDSc(DSframeIx), viewR(:,1)+motionDSr(DSframeIx), freshness);
-        % end
 
         fTIF.WriteIMG(single(A1));
         if numChannels==2

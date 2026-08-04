@@ -305,9 +305,7 @@ for outerLoop = 1:params.nmfIter
 
     %normalize new H and S
     normFac = sum(H_est_new, 1);
-    % if ~isreal(normFac)
-    %     keyboard
-    % end
+
     H_est_new = H_est_new./normFac;
     Hs_est_new = Hs_est_new./normFac;
     S_est_new = S_est_new.*normFac';

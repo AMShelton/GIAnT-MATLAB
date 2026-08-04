@@ -38,12 +38,10 @@ function  [IM, meanIM, IMc, aData, peaks, discardFrames]= loadAndProcessTrialAsy
     end
 
     try
-        %[IMc, peaks] = localizeSourcesSLAP2(IM, [], params);
        [IMc, peaks] = localizeSources_vIM(IM, vIM, params);
     catch ME
         IM([1 end],:,:) = nan;
         IM(:,[1 end],:) = nan;
-        %[IMc, peaks] = localizeSourcesSLAP2(IM, vIM, params);
         [IMc, peaks] = localizeSources_vIM(IM, vIM, params);
     end
 end

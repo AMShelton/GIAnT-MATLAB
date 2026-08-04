@@ -42,7 +42,7 @@ if length(sz)==1
     sz = [sz sz];
 end
 if any(mod(sz,2)==0)
-    error('kernel size SZ must be odd)')
+    error('kernel size SZ must be odd')
 end
 margin=(sz-1)/2;
 AA = nan(size(A)+2*margin);

@@ -26,8 +26,8 @@ switch fnName
         params.motionThresh = 2.5;       tooltips.motionThresh = 'decrease this to be more stringent on motion correction when censoring frames';
         params.analyzeHz = 200;          tooltips.analyzeHz = 'frame rate used for analysis (SLAP2 only)';
         params.nanThresh = 0.33;         tooltips.nanThresh = 'Max fraction of samples that can be NaN for including a pixel in analysis';
-        params.discardInitial_s = 0;     tooltips.discardInitial_s = 'time in seconds to remove from analysis at the start of each trial, to accound for warmup';
-        params.operator = 'User';       tooltips.operator = 'person running the analysis (for aind-data-schema metadata)';
+        params.discardInitial_s = 0;     tooltips.discardInitial_s = 'time in seconds to remove from analysis at the start of each trial, to account for warmup';
+        params.operator = 'User';       tooltips.operator = 'person running the analysis';
     case 'MultiRoiRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshift = 40; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -38,7 +38,7 @@ switch fnName
         params.refStackTemplate = false; tooltips.refStackTemplate = 'Use ref stack as template';
         params.isReVolt = false; tooltips.isReVolt = 'select true for recordings with simultaneous red 1P imaging';
         params.includeIntegrationROIs = false; tooltips.includeIntegrationROIs = 'Use integration ROIs for alignment and TIFF generation?';
-        params.operator = 'User';       tooltips.operator = 'person running the analysis (for aind-data-schema metadata)';
+        params.operator = 'User';       tooltips.operator = 'person running the analysis';
     case 'BandRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshiftXY = 25; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -53,7 +53,7 @@ switch fnName
         params.overwriteExisting = false; tooltips.overwriteExisting = 'Realign and overwrite any existing files?';
         params.integrationOnly = false; tooltips.integrationOnly = 'Align only on integration superpixels';
         params.saveTiffs = true; tooltips.saveTiffs = 'Save aligned tiff movies';
-        params.operator = 'User';       tooltips.operator = 'person running the analysis (for aind-data-schema metadata)';
+        params.operator = 'User';       tooltips.operator = 'person running the analysis';
     case 'StripRegistration'
         params.maxshift = 50; tooltips.maxshift = 'Maximum frame offset,in pixels';
         params.clipShift = 10; tooltips.clipShift = 'Maximum allowable shift per frame';
@@ -76,15 +76,7 @@ if nargin>1 %if the user specified parameters, add in the user parameters, use d
 end
 
 %get parameters from user
-% prefPath = [fileparts(which(fnName)) filesep fnName '_prefs.mat'];
-% % if exist(prefPath, 'file')
-% %     paramsIn = load(prefPath, 'paramsIn');
-% %     % if (length(fieldnames(paramsIn)) == length(fieldnames(params))) && all(strcmp(fieldnames(paramsIn), fieldnames(params)))
-% %     %     params = paramsIn;
-% %     % end
-% % end
- paramsIn = optionsGUI(params, tooltips, fnName);
- params = paramsIn;
-% save(prefPath, 'paramsIn');
+paramsIn = optionsGUI(params, tooltips, fnName);
+params = paramsIn;
 
 end
