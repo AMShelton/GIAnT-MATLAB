@@ -131,7 +131,7 @@ for DMDix = nDMDs:-1:1
     clear aData
 
     %set up parallelization
-    if params.nParallelWorkers>1
+    if params.nWorkers>1
         p = gcp('nocreate');
         if isempty(p)
             poolsize = 0;
@@ -165,7 +165,7 @@ for DMDix = nDMDs:-1:1
             memAvailable = 8 * 1024^3;
         end
         maxWorkers = max(1,min(size(trialTable.filename,2), floor(0.13*memAvailable/fileSize)));
-        nWorkers = min(params.nParallelWorkers, maxWorkers);
+        nWorkers = min(params.nWorkers, maxWorkers);
         
         if poolsize~=nWorkers ||  ~strcmpi(class(p), 'parallel.ProcessPool')
             delete(gcp('nocreate'));

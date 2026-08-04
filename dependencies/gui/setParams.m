@@ -21,7 +21,7 @@ switch fnName
         params.VIF = 1.38;                  tooltips.VIF = 'variance inflation factor for stdIM estimate';
         params.peakth = 10;             tooltips.peakth = 'peak identification threshold (actIM z-score)';
         params.minPeakDistance = 1;     tooltips.minPeakDistance = 'minimum Chebyshev distance between peaks (pixels); 1 = adjacent peaks allowed';
-        params.nParallelWorkers = 12;    tooltips.nWorkers = 'number of parallel workers';
+        params.nWorkers = 12;           tooltips.nWorkers = 'number of parallel workers';
         params.drawUserRois = true;     tooltips.drawUserRois = 'pop up a GUI to annotate user ROIs?';  
         params.motionThresh = 2.5;       tooltips.motionThresh = 'decrease this to be more stringent on motion correction when censoring frames';
         params.analyzeHz = 200;          tooltips.analyzeHz = 'frame rate used for analysis (SLAP2 only)';
@@ -67,7 +67,7 @@ switch fnName
 end
 
 if nargin>1 %if the user specified parameters, add in the user parameters, use defaults for remaining, NO GUI
-    paramsIn = coerceMicroscopeToIsSLAP2(paramsIn);
+    paramsIn = coerceLegacyParamNames(paramsIn);
     for field = fieldnames(paramsIn)'
          params.(field{1}) = paramsIn.(field{1});
     end
@@ -78,12 +78,12 @@ end
 
 %get parameters from user
 paramsIn = optionsGUI(params, tooltips, fnName);
-params = coerceMicroscopeToIsSLAP2(paramsIn);
+params = coerceLegacyParamNames(paramsIn);
 
 end
 
-function params = coerceMicroscopeToIsSLAP2(params)
-%COERCEMICROSCOPETOISSLAP2 Map legacy params.microscope string to params.isSLAP2.
+function params = coerceLegacyParamNames(params)
+%COERCELEGACYPARAMNAMES Map renamed params fields to current names.
 if ~isstruct(params) || isempty(params)
     return
 end
@@ -95,5 +95,11 @@ if isfield(params, 'microscope')
 end
 if isfield(params, 'isSLAP2')
     params.isSLAP2 = logical(params.isSLAP2);
+end
+if isfield(params, 'nParallelWorkers')
+    if ~isfield(params, 'nWorkers')
+        params.nWorkers = params.nParallelWorkers;
+    end
+    params = rmfield(params, 'nParallelWorkers');
 end
 end
