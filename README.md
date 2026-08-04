@@ -395,3 +395,12 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 | `Path{n}/sources/spatial/per_trial_coords` | trials x sources x 3 | numeric | Source centers per trial: `[z_loc, y_loc, x_loc]`, **0-indexed** (same convention as `experiment_summary.h5` `coords`) |
 | `Path{n}/sources/temporal` | — | group | Per-trial source metrics |
 | `Path{n}/sources/temporal/per_trial_SNR` | trials x sources | numeric | Per-source SNR for each analysis trial |
+
+## Citation
+
+If you use GIAnT, please cite:
+
+> Xie, M. E., Friedrich, J., Wirsching, E., Shibu, C. J., Seyedolmohadesin, M., Ouellette, N., Wang, T., Svoboda, K., Charles, A. S., & Podgorski, K. *GIAnT: a Glutamate Imaging Analysis Toolbox*.
+
+Machine-readable citation metadata is in [`CITATION.cff`](CITATION.cff).
+

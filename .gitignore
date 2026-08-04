@@ -1,1 +1,25 @@
 .DS_Store
+Thumbs.db
+Desktop.ini
+
+# MATLAB autosaves / backups
+*.asv
+*.m~
+*.bak
+*.orig
+
+# MATLAB preferences / session dumps
+*_prefs.mat
+
+# Common experiment data products (do not commit)
+*.tif
+*.tiff
+*.h5
+*.hdf5
+*.dat
+
+# Editor / OS clutter
+__pycache__/
+*.pyc
+.idea/
+.vscode/

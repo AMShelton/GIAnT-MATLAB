@@ -1,0 +1,53 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it using the metadata below.
+title: "GIAnT: a Glutamate Imaging Analysis Toolbox"
+type: software
+authors:
+  - family-names: Xie
+    given-names: Michael E.
+    affiliation: "Department of Biomedical Engineering, Johns Hopkins University, Baltimore, MD; Allen Institute, Neural Dynamics, Seattle, WA"
+  - family-names: Friedrich
+    given-names: Johannes
+    affiliation: "Allen Institute, Neural Dynamics, Seattle, WA"
+  - family-names: Wirsching
+    given-names: Elizabeth
+    affiliation: "Allen Institute, Neural Dynamics, Seattle, WA"
+  - family-names: Shibu
+    given-names: Caleb Jones
+    affiliation: "Allen Institute, Neural Dynamics, Seattle, WA"
+  - family-names: Seyedolmohadesin
+    given-names: Maedeh
+    affiliation: "Allen Institute, Neural Dynamics, Seattle, WA"
+  - family-names: Ouellette
+    given-names: Naveen
+    affiliation: "Allen Institute, Neural Dynamics, Seattle, WA"
+  - family-names: Wang
+    given-names: Tim
+    affiliation: "Allen Institute, Neural Dynamics, Seattle, WA"
+  - family-names: Svoboda
+    given-names: Karel
+    affiliation: "Allen Institute, Neural Dynamics, Seattle, WA"
+  - family-names: Charles
+    given-names: Adam S.
+    affiliation: "Department of Biomedical Engineering, Johns Hopkins University, Baltimore, MD"
+  - family-names: Podgorski
+    given-names: Kaspar
+    affiliation: "Allen Institute, Neural Dynamics, Seattle, WA"
+repository-code: "https://github.com/AllenNeuralDynamics/GIAnT-MATLAB"
+license: MIT
+keywords:
+  - glutamate imaging
+  - calcium imaging
+  - source extraction
+  - motion correction
+  - MATLAB
+# preferred-citation: fill in when the preprint is posted (DOI, year, journal/server)
+# preferred-citation:
+#   type: article
+#   title: "GIAnT: a Glutamate Imaging Analysis Toolbox"
+#   authors:
+#     - family-names: Xie
+#       given-names: Michael E.
+#     # ... same author list ...
+#   year: 2026
+#   doi: "10.xxxx/xxxxx"

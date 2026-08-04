@@ -1,0 +1,113 @@
+GIAnT-MATLAB third-party notices
+================================
+
+This repository is licensed under the MIT License (see LICENSE). The
+components below are subject to their own licenses.
+
+
+Fast_Tiff_Write (external dependency)
+-------------------------------------
+Required for motion-correction TIFF writing (Fast_BigTiff_Write).
+
+Source: https://github.com/rharkes/Fast_Tiff_Write
+Pin to commit: ddd50c3286ff5b013d1f0478e8a5bd0d60978a75
+License: GNU General Public License v3.0 (or later)
+Authors: R. Harkes; BigTIFF support by O. Hernandez
+
+Do not use a later upstream revision without verifying TIFF
+orientation compatibility with GIAnT (see repository README).
+
+
+NoRMCorre (external dependency)
+-------------------------------
+Required for StripRegistration motion correction.
+
+Source: https://github.com/flatironinstitute/NoRMCorre
+License: GNU General Public License v2.0
+
+
+dftregistration_clipped.m
+-------------------------
+Path: dependencies/alignment/dftregistration_clipped.m
+
+Modified from Manuel Guizar's dftregistration.m (MathWorks File Exchange
+submission 18401, "Efficient subpixel image registration by cross-
+correlation", version 2, 2016).
+
+Algorithm citation:
+  Manuel Guizar-Sicairos, Samuel T. Thurman, and James R. Fienup,
+  "Efficient subpixel image registration algorithms," Opt. Lett. 33,
+  156-158 (2008).
+
+Upstream copyright and license (from File Exchange license.txt):
+
+  Copyright (c) 2016, Manuel Guizar
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are
+  met:
+
+      * Redistributions of source code must retain the above copyright
+        notice, this list of conditions and the following disclaimer.
+      * Redistributions in binary form must reproduce the above copyright
+        notice, this list of conditions and the following disclaimer in
+        the documentation and/or other materials provided with the
+        distribution
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+  PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+GIAnT modifications relative to File Exchange dftregistration.m:
+  - Renamed entry point; added required argument clip (max shift).
+  - Zeros cross-correlation outside a centered clip window before peak
+    search (whole-pixel and coarse partial-pixel paths).
+  - Peak location uses max(real(CC)) instead of max(CC).
+
+
+nanmedfilt2.m
+-------------
+Path: dependencies/nanmedfilt2.m
+
+From Roman Voronov, MathWorks File Exchange submission 41457
+(https://www.mathworks.com/matlabcentral/fileexchange/41457-nanmedfilt2),
+version 1.0.0.0 (2013). Body matches that release (whitespace only).
+The File Exchange description notes the approach was based on Newsreader
+thread http://www.mathworks.com/matlabcentral/newsreader/view_thread/251787
+
+Upstream copyright and license (from File Exchange license.txt):
+
+  Copyright (c) 2013, Roman Voronov
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are
+  met:
+
+      * Redistributions of source code must retain the above copyright
+        notice, this list of conditions and the following disclaimer.
+      * Redistributions in binary form must reproduce the above copyright
+        notice, this list of conditions and the following disclaimer in
+        the documentation and/or other materials provided with the
+        distribution
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+  PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
