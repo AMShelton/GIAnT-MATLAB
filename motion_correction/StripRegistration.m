@@ -1,5 +1,5 @@
 function params = StripRegistration(fullPathToTrialTable, paramsIn)
-%STRIPREGISTRATION Bergamo strip alignment using a pre-built trial_table.h5.
+%STRIPREGISTRATION Strip alignment using a pre-built trial_table.h5.
 %   params = STRIPREGISTRATION() prompts for trial_table.h5 (see BUILDTRIALTABLE).
 %   params = STRIPREGISTRATION(fullPathToTrialTable)
 %   params = STRIPREGISTRATION(fullPathToTrialTable, paramsIn)  % same pattern as MultiRoiRegistration

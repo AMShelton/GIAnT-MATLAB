@@ -14,7 +14,7 @@ useRegFailTable = isfield(trialTable, 'motion_correction') ...
     && size(trialTable.motion_correction.registration_failed, 2) == nTrials;
 
 %populate source_extraction.fn_raw with the file that source extraction
-%should read raw data from (.dat for SLAP2, registered-raw tif for Bergamo)
+%should read raw data from (.dat for SLAP2, registered-raw tif for non-SLAP2)
 trialTable.source_extraction.fn_raw = cell(nDMDs, nTrials);
 
 for trialIx = nTrials:-1:1
@@ -57,7 +57,7 @@ for trialIx = nTrials:-1:1
             %SLAP2: raw data for extraction is the source .dat file in datadr
             trialTable.source_extraction.fn_raw{DMDix,trialIx} = sourceFn;
         else
-            %Bergamo: raw data for extraction is the registered-raw file
+            %non-SLAP2: raw data for extraction is the registered-raw file
             %produced by StripRegistration and stored in motion_correction
             rawFn = trialTable.motion_correction.fn_raw{DMDix,trialIx};
             if ~exist([mocodr filesep rawFn], 'file')

@@ -78,8 +78,7 @@ disp([dr filesep fn])
 numChannels = params.numChannels;
 orderedChannels = [params.activityChannel:numChannels, 1:params.activityChannel-1];
 
-switch params.microscope
-    case 'SLAP2'
+if params.isSLAP2
         if params.includeIntegrationROIs
             warning('includeIntegration not implemented, using raster only!')
             spTypeFlag = 1; %use only raster superpixels
@@ -175,7 +174,7 @@ switch params.microscope
             end
         end
 
-    case 'bergamo'
+    else
         if endsWith(fn, '.h5')
             desc = h5info([dr filesep fn]);
             IM = h5read([dr filesep fn], ['/', desc.Datasets.Name]);
@@ -214,7 +213,7 @@ switch params.microscope
         sumF = sum(meanPx,1,'omitmissing');
         IMsel = nan(sum(selPx2D(:)),numChannels, nFrames);
         Finvsel = nan(sum(selPx2D(:)),nFrames);
-        Fresh = ones(size(IM,1), size(IM,2), 'single'); %freshness currently unused for bergamo
+        Fresh = ones(size(IM,1), size(IM,2), 'single'); %freshness currently unused for non-SLAP2
         for bix = nBlocks:-1:1
             fIxs  = blockEdges(bix):(blockEdges(bix+1)-1);
             nFramesInBlock = length(fIxs);

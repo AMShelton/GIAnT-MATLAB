@@ -1,8 +1,8 @@
 function trialTable = buildTrialTable(dr, savedr, useAllFiles, fns)
-%BUILDTRIALTABLE Organize multi-trial recordings and metadata for Bergamo.
+%BUILDTRIALTABLE Organize multi-trial recordings and metadata (non-SLAP2).
 %   trialTable = BUILDTRIALTABLE(dr, savedr, useAllFiles, fns) builds the trial_table
 %   struct documented in README.md and writes it to
-%   fullfile(savedr, 'trial_table.h5'). nDMDs is 1 for Bergamo data.
+%   fullfile(savedr, 'trial_table.h5'). nDMDs / imaging paths is 1 for non-SLAP2 data.
 
 if nargin < 1 || isempty(dr)
     dr = uigetdir;

@@ -3,7 +3,7 @@ function params = setParams(fnName, paramsIn, forceGUI)
 
 switch fnName
     case 'SILo'
-        params.microscope = { '''SLAP2''' , '''bergamo'''};          tooltips.scope = 'SLAP2 or bergamo';
+        params.isSLAP2 = false;          tooltips.isSLAP2 = 'Set true for SLAP2 data';
         params.includeIntegrationROIs = false; tooltips.includeIntegrationROIs = 'Use integration ROIs for trace extraction?';
         params.sigma_px = 1.33;          tooltips.sigma_px = 'Estimated radius of the PSF (gaussian sigma)';
         params.nmfIter = 2;              tooltips.nmfIter = 'number of iterations of NMF refinement';
@@ -21,13 +21,12 @@ switch fnName
         params.VIF = 1.38;                  tooltips.VIF = 'variance inflation factor for stdIM estimate';
         params.peakth = 10;             tooltips.peakth = 'peak identification threshold (actIM z-score)';
         params.minPeakDistance = 1;     tooltips.minPeakDistance = 'minimum Chebyshev distance between peaks (pixels); 1 = adjacent peaks allowed';
-        params.nParallelWorkers = 12;    tooltips.nWorkers = 'number of parallel workers';
+        params.nWorkers = 12;           tooltips.nWorkers = 'number of parallel workers';
         params.drawUserRois = true;     tooltips.drawUserRois = 'pop up a GUI to annotate user ROIs?';  
         params.motionThresh = 2.5;       tooltips.motionThresh = 'decrease this to be more stringent on motion correction when censoring frames';
         params.analyzeHz = 200;          tooltips.analyzeHz = 'frame rate used for analysis (SLAP2 only)';
         params.nanThresh = 0.33;         tooltips.nanThresh = 'Max fraction of samples that can be NaN for including a pixel in analysis';
         params.discardInitial_s = 0;     tooltips.discardInitial_s = 'time in seconds to remove from analysis at the start of each trial, to account for warmup';
-        params.operator = 'User';       tooltips.operator = 'person running the analysis';
     case 'MultiRoiRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshift = 40; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -38,7 +37,6 @@ switch fnName
         params.refStackTemplate = false; tooltips.refStackTemplate = 'Use ref stack as template';
         params.isReVolt = false; tooltips.isReVolt = 'select true for recordings with simultaneous red 1P imaging';
         params.includeIntegrationROIs = false; tooltips.includeIntegrationROIs = 'Use integration ROIs for alignment and TIFF generation?';
-        params.operator = 'User';       tooltips.operator = 'person running the analysis';
     case 'BandRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshiftXY = 25; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -53,7 +51,6 @@ switch fnName
         params.overwriteExisting = false; tooltips.overwriteExisting = 'Realign and overwrite any existing files?';
         params.integrationOnly = false; tooltips.integrationOnly = 'Align only on integration superpixels';
         params.saveTiffs = true; tooltips.saveTiffs = 'Save aligned tiff movies';
-        params.operator = 'User';       tooltips.operator = 'person running the analysis';
     case 'StripRegistration'
         params.maxshift = 50; tooltips.maxshift = 'Maximum frame offset,in pixels';
         params.clipShift = 10; tooltips.clipShift = 'Maximum allowable shift per frame';
@@ -64,9 +61,10 @@ switch fnName
         params.saveTif = true; tooltips.saveTif = 'whether to save registered movie as .tif or .h5';
     otherwise
         error('Unknown function name passed to setParams.m')
-end             
+end
 
 if nargin>1 %if the user specified parameters, add in the user parameters, use defaults for remaining, NO GUI
+    paramsIn = coerceLegacyParamNames(paramsIn);
     for field = fieldnames(paramsIn)'
          params.(field{1}) = paramsIn.(field{1});
     end
@@ -77,6 +75,32 @@ end
 
 %get parameters from user
 paramsIn = optionsGUI(params, tooltips, fnName);
-params = paramsIn;
+params = coerceLegacyParamNames(paramsIn);
 
+end
+
+function params = coerceLegacyParamNames(params)
+%COERCELEGACYPARAMNAMES Map renamed params fields to current names.
+if ~isstruct(params) || isempty(params)
+    return
+end
+if isfield(params, 'microscope')
+    if ~isfield(params, 'isSLAP2')
+        params.isSLAP2 = strcmpi(params.microscope, 'SLAP2');
+    end
+    params = rmfield(params, 'microscope');
+end
+if isfield(params, 'isSLAP2')
+    params.isSLAP2 = logical(params.isSLAP2);
+end
+if isfield(params, 'nParallelWorkers')
+    if ~isfield(params, 'nWorkers')
+        params.nWorkers = params.nParallelWorkers;
+    end
+    params = rmfield(params, 'nParallelWorkers');
+end
+% Drop legacy provenance fields (not algorithm inputs)
+if isfield(params, 'operator')
+    params = rmfield(params, 'operator');
+end
 end
