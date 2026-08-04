@@ -63,5 +63,5 @@ end
 motion = -motion;
 
 if any(isnan(motion))
-    keyboard
+    error('xcorr2_nans_weighted:NaNMotion', 'Computed motion contains NaN.');
 end

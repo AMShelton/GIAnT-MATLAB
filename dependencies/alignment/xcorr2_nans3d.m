@@ -74,5 +74,5 @@ else %the optimum is at an edge of search range; no superresolution
 end
 
 if any(isnan(motion))
-    keyboard
+    error('xcorr2_nans3d:NaNMotion', 'Computed motion contains NaN.');
 end

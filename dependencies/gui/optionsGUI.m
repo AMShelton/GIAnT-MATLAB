@@ -166,7 +166,8 @@ waitfor(handles.F);
                     'Position',[etX HOK+(n-1)*(H+H0) etW H],...
                     'callback', @(src,evnt)(parseET(src, n)));
             otherwise
-                keyboard
+                error('optionsGUI:UnsupportedParamType', ...
+                    'Unsupported parameter type "%s" for option "%s".', type, optNames{n});
         end
         if isfield(tooltips, optNames{n})
             set(handles.titles(n), 'TooltipString', tooltips.(optNames{n}));

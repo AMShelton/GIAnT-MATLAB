@@ -79,26 +79,28 @@ for problemIx = 1:nProblems %9
         if doParallel
             analysisFutures(problemIx) = parfeval(@extractSources, 6, Y_p, F_inv_p, sources_p, selPix_p, params, GTp);
         else
-            [Hi,Si,Bi, LSi, SNRi, errFinal] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params, GTp);
+            [Hi,Si,Bi, LSi, SNRi, errFinal] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params, GTp); %#ok<ASGLU>
         end
     else
         if doParallel
             analysisFutures(problemIx) = parfeval(@extractSources, 5, Y_p, F_inv_p, sources_p, selPix_p, params);
         else
-            [Hi,Si,Bi, LSi, SNRi] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params);
+            [Hi,Si,Bi, LSi, SNRi] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params); %#ok<ASGLU>
         end
     end
 
     if ~doParallel %process this problem now
-        %TODO
-        H = []; B = []; S = []; LS = []; F0 = []; SNR = [];
+        %TODO: assemble Hi/Si/Bi/LSi/SNRi into H/B/S/LS/F0/SNR across problems
+        error('extractTrial:NonParallelNotImplemented', ...
+            ['Non-parallel extractTrial assembly is not implemented. ', ...
+             'Call with a single output argument to use the parallel futures path.']);
     end
 end
 
 if doParallel
     varargout{1} = afterAll(analysisFutures,@(x)assembleResults(x, pxList_p, selIdxs, sourceList, numel(sources.R), size(Y_obs,2)),6, "PassFuture",true);
 else
-    varargout = {H,B,S,LS,F0,SNR};
+    varargout = {H,B,S,LS,F0,SNR}; %#ok<USENS>
 end
 end
 

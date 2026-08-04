@@ -125,7 +125,9 @@ for DMDix = nDMDs:-1:1
         exptSummary.Z(DMDix) = aData.slap2.Z_depths;
     else
         exptSummary.Z(DMDix) = nan;
-        warning('Alignment data missing Z_depths, likely out of date!!')
+        if strcmpi(params.microscope, 'SLAP2')
+            warning('Alignment data missing Z_depths, likely out of date!!')
+        end
     end
     clear aData
 
@@ -146,9 +148,22 @@ for DMDix = nDMDs:-1:1
         if ispc
             userMemInfo = memory;
             memAvailable = userMemInfo.MemAvailableAllArrays;
-        else
+        elseif ismac
+            memAvailable = localMacMemAvailable();
+        elseif exist('/proc/meminfo', 'file')
             [~, result] = unix('grep MemAvailable /proc/meminfo | awk ''{print $2}''');
-            memAvailable = str2double(result) * 1024;  % Convert KB to bytes
+            memKb = str2double(strtrim(result));
+            if isnan(memKb)
+                warning('SILo:MemProbeFailed', ...
+                    'Could not parse MemAvailable from /proc/meminfo; assuming 8 GB.');
+                memAvailable = 8 * 1024^3;
+            else
+                memAvailable = memKb * 1024;  % Convert KB to bytes
+            end
+        else
+            warning('SILo:MemProbeFailed', ...
+                'Could not determine available memory; assuming 8 GB.');
+            memAvailable = 8 * 1024^3;
         end
         maxWorkers = max(1,min(size(trialTable.filename,2), floor(0.13*memAvailable/fileSize)));
         nWorkers = min(params.nParallelWorkers, maxWorkers);
@@ -369,6 +384,41 @@ end
 
 
 disp('Done SILo')
+end
+
+function memAvailable = localMacMemAvailable()
+%LOCALMACMEMAVAILABLE Estimate free+inactive memory on macOS via vm_stat.
+memAvailable = NaN;
+[status, vm] = unix('vm_stat');
+if status == 0
+    pageSize = 4096;
+    tok = regexp(vm, 'page size of (\d+)', 'tokens', 'once');
+    if ~isempty(tok)
+        pageSize = str2double(tok{1});
+    end
+    freeTok = regexp(vm, 'Pages free:\s+(\d+)', 'tokens', 'once');
+    inactiveTok = regexp(vm, 'Pages inactive:\s+(\d+)', 'tokens', 'once');
+    speculativeTok = regexp(vm, 'Pages speculative:\s+(\d+)', 'tokens', 'once');
+    if ~isempty(freeTok)
+        nPages = str2double(freeTok{1});
+        if ~isempty(inactiveTok)
+            nPages = nPages + str2double(inactiveTok{1});
+        end
+        if ~isempty(speculativeTok)
+            nPages = nPages + str2double(speculativeTok{1});
+        end
+        memAvailable = nPages * pageSize;
+    end
+end
+if isnan(memAvailable) || memAvailable <= 0
+    [status, result] = unix('sysctl -n hw.memsize');
+    memAvailable = str2double(strtrim(result));
+    if status ~= 0 || isnan(memAvailable)
+        warning('SILo:MemProbeFailed', ...
+            'Could not determine available memory on macOS; assuming 8 GB.');
+        memAvailable = 8 * 1024^3;
+    end
+end
 end
 
 function trySave(saveFcn, label, maxAttempts)
