@@ -48,7 +48,7 @@ Typical flow for standard multi-TIFF / ScanImage-style recordings:
 1. **`buildTrialTable`** — choose a data folder (and optional save folder). Writes `trial_table.h5` under the save directory.
 2. **`StripRegistration`** — select that `trial_table.h5` (or pass its path). Writes registered TIFFs and `*_ALIGNMENTDATA.h5` under `motion_correction/`. Requires NoRMCorre and Fast_Tiff_Write on the path.
 3. **Optional: `annotateROIs`** — draw exclude / soma ROIs; writes `annotations.h5`.
-4. **`SILo`** — select the same `trial_table.h5` (or its folder). In the parameter GUI, keep **microscope** on the non-SLAP2 option (do not select `SLAP2`). Writes `experiment_summary.h5` and `per_trial_summary.h5` under `source_extraction/`.
+4. **`SILo`** — select the same `trial_table.h5` (or its folder). In the parameter GUI, leave **`isSLAP2`** as `false` (default). Writes `experiment_summary.h5` and `per_trial_summary.h5` under `source_extraction/`.
 
 Example (interactive prompts omitted when paths are passed):
 
@@ -56,7 +56,7 @@ Example (interactive prompts omitted when paths are passed):
 buildTrialTable;                          % or buildTrialTable(datadr, savedr)
 StripRegistration;                        % or StripRegistration(pathToTrialTable)
 % annotateROIs;                           % optional
-SILo;                                     % or SILo(pathToTrialTable)
+SILo;                                     % or SILo(pathToTrialTable)  % isSLAP2 = false
 ```
 
 ## How to run (SLAP2)
@@ -67,13 +67,13 @@ SILo;                                     % or SILo(pathToTrialTable)
    - **`BandRegistration`** — band-scan SLAP2  
    Requires a SLAP2 reader and Fast_Tiff_Write on the path (NoRMCorre is not used on these paths).
 3. **Optional: `annotateROIs`**
-4. **`SILo`** — in the parameter GUI, set **microscope** to `SLAP2`.
+4. **`SILo`** — in the parameter GUI, set **`isSLAP2`** to `true`.
 
 ```matlab
 buildTrialTableSLAP2;
 MultiRoiRegistration;   % or BandRegistration
 % annotateROIs;
-SILo;                   % microscope = SLAP2
+SILo;                   % isSLAP2 = true
 ```
 
 ## Epoch and analysis trial

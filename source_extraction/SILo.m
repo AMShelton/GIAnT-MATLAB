@@ -27,13 +27,12 @@ params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''
 %confirm that all files exist (also populates source_extraction.fn_raw)
 [trialTable, keepTrials] = verifyFiles(trialTablefn, dr);
 mocodr = fullfile(trialTable.savedr, 'motion_correction');
-nDMDs = size(trialTable.filename,1); %the trial table has size #DMDs x # trials; Bergamo is treated as '1 DMD'
+nDMDs = size(trialTable.filename,1); % #imaging paths x #trials; non-SLAP2 is treated as 1 path
 nTrials = size(trialTable.filename,2);
 
-%parameters that depend only on the microscope, hidden from GUI
-switch params.microscope
-    case 'bergamo'
-        params.analyzeHz = nan;
+%parameters that depend only on modality (SLAP2 vs default), hidden from GUI
+if ~params.isSLAP2
+    params.analyzeHz = nan;
 end
 
 disp(['## SUMMARIZING' newline 'Folder:'])
@@ -118,14 +117,14 @@ for DMDix = nDMDs:-1:1
     numChannels = aData.numChannels;
     params.numChannels = numChannels;
     params.alignHz = aData.alignHz;
-    if ~strcmpi(params.microscope, 'SLAP2')
+    if ~params.isSLAP2
         params.analyzeHz = 1/aData.frametime; %analyze conventional recordings at the acquisition framerate
     end
     if isfield(aData, 'slap2') && isfield(aData.slap2, 'Z_depths')
         exptSummary.Z(DMDix) = aData.slap2.Z_depths;
     else
         exptSummary.Z(DMDix) = nan;
-        if strcmpi(params.microscope, 'SLAP2')
+        if params.isSLAP2
             warning('Alignment data missing Z_depths, likely out of date!!')
         end
     end
@@ -312,7 +311,7 @@ for DMDix = nDMDs:-1:1
 
     if any(keepSources)
         fns = trialTable.source_extraction.fn_raw(DMDix,:);
-        if strcmpi(params.microscope, 'SLAP2')
+        if params.isSLAP2
             if isfield(trialTable, 'datadr') && ~isempty(trialTable.datadr)
                 trialDataDr = trialTable.datadr;
             else
@@ -321,7 +320,7 @@ for DMDix = nDMDs:-1:1
             fls = trialTable.slap2_info.first_line(DMDix,:);
             els = trialTable.slap2_info.last_line(DMDix,:);
             E = processAllTrials_Async(trialDataDr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
-        else %BERGAMO (registered movies live under motion_correction)
+        else % non-SLAP2 (registered movies live under motion_correction)
             fls = cell(1,numel(fns));
             els = cell(1,numel(fns));
             E = processAllTrials_Async(mocodr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);

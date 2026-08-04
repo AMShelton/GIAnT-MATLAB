@@ -3,7 +3,7 @@ function params = setParams(fnName, paramsIn, forceGUI)
 
 switch fnName
     case 'SILo'
-        params.microscope = { '''SLAP2''' , '''bergamo'''};          tooltips.scope = 'SLAP2 or bergamo';
+        params.isSLAP2 = false;          tooltips.isSLAP2 = 'Set true for SLAP2 data';
         params.includeIntegrationROIs = false; tooltips.includeIntegrationROIs = 'Use integration ROIs for trace extraction?';
         params.sigma_px = 1.33;          tooltips.sigma_px = 'Estimated radius of the PSF (gaussian sigma)';
         params.nmfIter = 2;              tooltips.nmfIter = 'number of iterations of NMF refinement';
@@ -64,9 +64,10 @@ switch fnName
         params.saveTif = true; tooltips.saveTif = 'whether to save registered movie as .tif or .h5';
     otherwise
         error('Unknown function name passed to setParams.m')
-end             
+end
 
 if nargin>1 %if the user specified parameters, add in the user parameters, use defaults for remaining, NO GUI
+    paramsIn = coerceMicroscopeToIsSLAP2(paramsIn);
     for field = fieldnames(paramsIn)'
          params.(field{1}) = paramsIn.(field{1});
     end
@@ -77,6 +78,22 @@ end
 
 %get parameters from user
 paramsIn = optionsGUI(params, tooltips, fnName);
-params = paramsIn;
+params = coerceMicroscopeToIsSLAP2(paramsIn);
 
+end
+
+function params = coerceMicroscopeToIsSLAP2(params)
+%COERCEMICROSCOPETOISSLAP2 Map legacy params.microscope string to params.isSLAP2.
+if ~isstruct(params) || isempty(params)
+    return
+end
+if isfield(params, 'microscope')
+    if ~isfield(params, 'isSLAP2')
+        params.isSLAP2 = strcmpi(params.microscope, 'SLAP2');
+    end
+    params = rmfield(params, 'microscope');
+end
+if isfield(params, 'isSLAP2')
+    params.isSLAP2 = logical(params.isSLAP2);
+end
 end

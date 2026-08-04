@@ -25,7 +25,7 @@ if nargin < 3 || isempty(filename) || isempty(exptSummary) || isempty(trialTable
 end
 
 params = exptSummary.params;
-isSlap2 = strcmpi(params.microscope, 'SLAP2');
+isSlap2 = logical(params.isSLAP2);
 nDMDs = size(trialTable.filename, 1);
 nTrials = size(trialTable.filename, 2);
 

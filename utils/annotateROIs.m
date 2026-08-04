@@ -20,7 +20,7 @@ mocodr = fullfile(trialTable.savedr, 'motion_correction');
 % for dmdKey = fieldnames(trialTable.slap2_info.ref_stack)'
 %     trialTable.slap2_info.ref_stack.(dmdKey{1}).IM = []; %this uses a lot of memory and we won't need it
 % end
-nDMDs = size(trialTable.filename,1); %the trial table has size #DMDs x # trials; Bergamo is treated as '1 DMD'
+nDMDs = size(trialTable.filename,1); % #imaging paths x #trials; non-SLAP2 is treated as 1 path
 nTrials = size(trialTable.filename,2);
 
 disp(['## ANNOTATING' newline 'Folder:'])
