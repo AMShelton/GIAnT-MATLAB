@@ -24,28 +24,52 @@ if ~exist(mocosavedr,'dir')
 end
 
 %set up parallelization
-p = gcp('nocreate'); % If no pool, do not create new one.
-if isempty(p)
-    poolsize = 1;
-else
-    poolsize = p.NumWorkers;
-end
-
-core_info = evalc('feature(''numcores'');');
-core_info = regexp(core_info,'assigned: \d+ logical cores','match');
-core_info = core_info{1};
-numLogicalCores = str2num(core_info(11:end-14));
-
-nWorkers = min([params.nWorkers, numel(trialTable.filename), numLogicalCores]);
-if poolsize<nWorkers || ~strcmpi(class(p), 'parallel.ProcessPool')
-    delete(gcp('nocreate'));
-    if params.nWorkers<15
-        warning('You are using few parallel workers!');
-    end
-    parpool('processes',nWorkers); %limit the number of workers to avoid running out of RAM %4-30-24, lowering processes again to prevent another error (18 --> 15)
-end
+% Use exactly the requested number of process workers (subject to the
+% number of trials, logical cores, and the local Processes profile limit).
+% The previous implementation could silently use MORE workers than
+% params.nWorkers when a larger pool already existed, causing unexpected RAM use.
 nDMDs = size(trialTable.filename,1);
 nTrials = size(trialTable.true_trial_ix,2);
+
+core_info = evalc('feature(''numcores'');');
+core_match = regexp(core_info,'assigned: \d+ logical cores','match','once');
+if isempty(core_match)
+    numLogicalCores = feature('numcores');
+else
+    numLogicalCores = sscanf(core_match, 'assigned: %d logical cores');
+end
+
+profileMaxWorkers = inf;
+try
+    localCluster = parcluster('Processes');
+    profileMaxWorkers = localCluster.NumWorkers;
+catch
+    % If the profile cannot be queried, parpool will provide a useful error.
+end
+
+requestedWorkers = params.nWorkers;
+nWorkers = max(1, min([requestedWorkers, nTrials, numLogicalCores, profileMaxWorkers]));
+params.nWorkersRequested = requestedWorkers;
+params.nWorkers = nWorkers; % record the number actually used
+
+if nWorkers < requestedWorkers
+    warning('MultiRoiRegistration:WorkerLimit', ...
+        'Requested %d workers; using %d (limited by trials, logical cores, or Processes profile).', ...
+        requestedWorkers, nWorkers);
+end
+
+p = gcp('nocreate');
+if nWorkers > 1
+    if isempty(p) || ~isa(p, 'parallel.ProcessPool') || p.NumWorkers ~= nWorkers
+        delete(gcp('nocreate'));
+        parpool('processes', nWorkers);
+    end
+else
+    % A previously opened process pool still consumes RAM even though the
+    % sequential branch below would not use it.
+    delete(gcp('nocreate'));
+end
+
 trialTable.motion_correction.registration_failed = false(nDMDs, nTrials);
 
 for DMD_ix = 1:nDMDs
@@ -53,13 +77,19 @@ for DMD_ix = 1:nDMDs
     fnAdata = cell(1,nTrials);
     firstLine = nan(1,nTrials);
     regFail = false(1, nTrials);
+
+    % Broadcast only the fields alignment actually needs. In particular,
+    % avoid copying the often very large reference stacks to every worker
+    % unless refStackTemplate is enabled.
+    workerTable = makeWorkerTable(trialTable, params, DMD_ix);
+
     if nWorkers>1
         parfor f_ix = 1:nTrials
-            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix), regFail(f_ix)]= alignAsync(trialTable, params, f_ix, DMD_ix);
+            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix), regFail(f_ix)]= alignAsync(workerTable, params, f_ix, DMD_ix);
         end
     else
         for f_ix = 1:nTrials
-            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix), regFail(f_ix)]= alignAsync(trialTable, params, f_ix, DMD_ix);
+            [fnRegDS{f_ix}, fnAdata{f_ix}, firstLine(f_ix), regFail(f_ix)]= alignAsync(workerTable, params, f_ix, DMD_ix);
         end
     end
     trialTable.motion_correction.registration_failed(DMD_ix,:) = regFail;
@@ -182,16 +212,16 @@ if nInitFrames==0
     registrationFailed = true;
     return
 end
+% Build the summed registration image directly instead of first storing
+% H x W x channels x frames. For two-channel recordings this removes one
+% full channel-stack from each worker's peak memory. Freshness is taken
+% from channel 1, matching the previous reverse-channel loop.
 for fix = nInitFrames:-1:1
-    for cix = numChannels:-1:1
-        [Y(:,:,cix,fix), freshness(:,:,fix)] = getImageWrapper(S2data, cix, initFrames(fix), ceil(dt), 1, spTypeFlag);
+    [Yframe, freshness(:,:,fix)] = getImageWrapper(S2data, 1, initFrames(fix), ceil(dt), 1, spTypeFlag);
+    for cix = 2:numChannels
+        Yframe = Yframe + getImageWrapper(S2data, cix, initFrames(fix), ceil(dt), 1, spTypeFlag);
     end
-end
-
-if params.isReVolt
-    Y = squeeze(Y(:,:,1,:));
-else
-    Y = squeeze(sum(Y,3)); %use both channels;
+    Y(:,:,fix) = Yframe;
 end
 
 %make data smaller for alignment
@@ -222,6 +252,9 @@ tSum = sum(tFrames,3, 'omitnan');
 tN = sum(~isnan(tFrames),3);
 template = sqrt(tSum./tN);
 template(tN<minSamps) = nan;
+
+% These arrays are no longer needed once the initial template exists.
+clear tFrames R motion frameInds
 
 if params.refStackTemplate
     if params.isReVolt
@@ -269,16 +302,55 @@ aErrorDS = nan(1,nDSframes); %alignment error output by dftregistration
 
 %output TIF
 pixelscale = 4e4; %PIXEL SIZE IN DOTS PER CM; 250nm
-fTIF = Fast_BigTiff_Write([mocosavedr filesep fnwrite],pixelscale,0);
+tifPath = fullfile(mocosavedr, fnwrite);
+adataPath = fullfile(mocosavedr, fnAdata);
+partialAdataPath = [adataPath '.partial'];
 
-V1 = nan(size(viewC,1),size(viewC,2),nDSframes,'single'); %variance factor; multiply the image value by this to get variance
-%T = T0(aData.maxshift + (1:sz(1)), aData.maxshift+(1:sz(2)));
-disp('Registering:');
+% Remove a stale partial file left by a killed/failed process.
+if exist(partialAdataPath, 'file')
+    delete(partialAdataPath);
+end
+
+fTIF = Fast_BigTiff_Write(tifPath,pixelscale,0);
+
 % Per-channel mean over time (aligned frames), numChannels x H x W.
 % H,W match interpFrame output / saved TIFF pages: trimmed crop plus maxshift padding.
 szOut = [sz(1) + 2*aData.maxshift, sz(2) + 2*aData.maxshift];
 sumMeanIM = zeros(numChannels, szOut(1), szOut(2), 'single');
 nMeanIM = zeros(numChannels, szOut(1), szOut(2), 'single');
+
+% MEMORY OPTIMIZATION:
+% The previous implementation allocated varFacDS as
+% H x W x nDSframes x single in RAM (often several GB PER WORKER).
+% Create the final HDF5 dataset up front and stream small frame batches to
+% disk. The on-disk schema remains /slap2/varFacDS.
+staticSave = struct();
+staticSave.numChannels = numChannels;
+staticSave.frametime = 1/aData.alignHz;
+staticSave.alignHz = aData.alignHz;
+staticSave.DSframes = DSframes;
+staticSave.slap2 = struct();
+staticSave.slap2.Z_depths = metaZ;
+staticSave.slap2.cropRow = trimRows(1)-aData.maxshift;
+staticSave.slap2.cropCol = trimCols(1)-aData.maxshift;
+staticSave.slap2.viewC = viewC;
+staticSave.slap2.viewR = viewR;
+staticSave.slap2.trimRows = trimRows;
+staticSave.slap2.trimCols = trimCols;
+saveStructToH5(staticSave, partialAdataPath);
+
+h5create(partialAdataPath, '/slap2/varFacDS', ...
+    [szOut(1), szOut(2), nDSframes], ...
+    'Datatype', 'single', ...
+    'ChunkSize', [szOut(1), szOut(2), 1]);
+
+varFacBufferFrames = min(8, nDSframes);
+varFacBuffer = nan(szOut(1), szOut(2), varFacBufferFrames, 'single');
+varFacBufferCount = 0;
+varFacBufferStart = 1;
+
+%T = T0(aData.maxshift + (1:sz(1)), aData.maxshift+(1:sz(2)));
+disp('Registering:');
 try
     for DSframeIx = 1:nDSframes
         [M1, freshness] = getImageWrapper(S2data, 1, DSframes(DSframeIx), ceil(dt), 1, spTypeFlag); %moving image Ch1
@@ -301,10 +373,22 @@ try
             [motOutput, corrCoeff] = xcorr2_nans3d(M, T, [0 ; 0], aData.clipShift);
             motionDSz(DSframeIx) = motOutput(3);
         else
-            Ttmp = mean(cat(3, T0,template),3, 'omitnan');
+            % Mean of T0 and adaptive template without allocating an
+            % H x W x 2 temporary via cat(...).
+            Ttmp = T0;
+            bothValid = ~isnan(T0) & ~isnan(template);
+            Ttmp(bothValid) = (T0(bothValid) + template(bothValid))/2;
+            templateOnly = isnan(T0) & ~isnan(template);
+            Ttmp(templateOnly) = template(templateOnly);
+
             T = Ttmp(aData.maxshift-initR + (1:sz(1)), aData.maxshift-initC+(1:sz(2)));
-            %[motOutput, corrCoeff] = xcorr2_nans(M, T, [0 ; 0], aData.clipShift);
-            [motOutput, corrCoeff] = xcorr2_nans_weighted(M, freshness, T, [0 ; 0], max(abs([initC initR aData.clipShift])));
+
+            % T is already recentered with the previous-frame estimate.
+            % Search only clipShift around that prediction. The previous
+            % code expanded dShift with ABSOLUTE displacement, making the
+            % correlation cost grow quadratically as the recording drifted.
+            [motOutput, corrCoeff] = xcorr2_nans_weighted( ...
+                M, freshness, T, [0 ; 0], aData.clipShift);
         end
 
         motionDSr(DSframeIx) = initR+motOutput(1);
@@ -312,7 +396,23 @@ try
         aErrorDS(DSframeIx) = 1-corrCoeff^2;
 
         %compute aligned image and variance factor
-        [A1,V1(:,:,DSframeIx)] = interpFrame(M1, viewC(1,:)+motionDSc(DSframeIx), viewR(:,1)+motionDSr(DSframeIx), freshness);
+        [A1, Vframe] = interpFrame(M1, ...
+            viewC(1,:)+motionDSc(DSframeIx), ...
+            viewR(:,1)+motionDSr(DSframeIx), freshness);
+
+        % Buffer a few variance-factor frames, then stream them directly to
+        % HDF5. Assignment to single preserves the previous varFacDS type.
+        varFacBufferCount = varFacBufferCount + 1;
+        varFacBuffer(:,:,varFacBufferCount) = single(Vframe);
+        if varFacBufferCount == varFacBufferFrames || DSframeIx == nDSframes
+            h5write(partialAdataPath, '/slap2/varFacDS', ...
+                varFacBuffer(:,:,1:varFacBufferCount), ...
+                [1, 1, varFacBufferStart], ...
+                [szOut(1), szOut(2), varFacBufferCount]);
+            varFacBufferStart = DSframeIx + 1;
+            varFacBufferCount = 0;
+        end
+        clear Vframe
 
         fTIF.WriteIMG(single(A1));
         if numChannels==2
@@ -358,6 +458,13 @@ catch ME
         fTIF.close;
     catch
     end
+    % Partial outputs must never satisfy the "already aligned" check.
+    if exist(partialAdataPath, 'file')
+        delete(partialAdataPath);
+    end
+    if exist(tifPath, 'file')
+        delete(tifPath);
+    end
     disp(['REGISTRATION ERROR OCCURRED FOR FILE: ' fnW ' of ' fn newline 'YOU MAY NEED TO QC THIS FILE!' newline 'CONTINUING...'])
     return
 end
@@ -396,7 +503,7 @@ aData.frametime = 1/aData.alignHz;
 aData.DSframes = DSframes;
 aData.motionDSc = motionDSc;
 aData.motionDSr = motionDSr;
-aData.varFacDS = V1; %variance factor; multiply pixel intensity by this to get a number proportional to the pixel's variance
+% varFacDS was streamed directly to /slap2/varFacDS in partialAdataPath.
 if params.refStackTemplate
     aData.motionDSz = motionDSz;
 end
@@ -426,34 +533,84 @@ aData.viewR = viewR;%used to remap images from the datafile into the space of th
 
 registrationFailed = aData.registrationFailed;
 
-%build the on-disk alignment struct, following the layout documented in README.md
-toSave = struct();
-toSave.numChannels = aData.numChannels;
-toSave.meanIM = meanIM;
-toSave.frametime = aData.frametime;
-toSave.alignHz = aData.alignHz;
-toSave.DSframes = aData.DSframes;
-toSave.motionDSc = aData.motionDSc;
-toSave.motionDSr = aData.motionDSr;
-toSave.recNegErr = aData.recNegErr;
-toSave.registrationFailed = aData.registrationFailed;
-toSave.slap2 = struct();
-toSave.slap2.varFacDS = aData.varFacDS;
-toSave.slap2.Z_depths = aData.Z_depths;
-toSave.slap2.cropRow = aData.cropRow;
-toSave.slap2.cropCol = aData.cropCol;
-toSave.slap2.viewC = aData.viewC;
-toSave.slap2.viewR = aData.viewR;
-toSave.slap2.trimRows = aData.trimRows;
-toSave.slap2.trimCols = aData.trimCols;
-toSave.slap2.onlineMotionXshift = aData.onlineXshift;
-toSave.slap2.onlineMotionYshift = aData.onlineYshift;
-toSave.slap2.onlineMotionZshift = aData.onlineZshift;
+% Complete the partially-written alignment H5. Static fields and
+% /slap2/varFacDS already exist; append only quantities calculated after
+% registration. This avoids ever materializing varFacDS in RAM.
+appendNumericDataset(partialAdataPath, '/meanIM', meanIM);
+appendNumericDataset(partialAdataPath, '/motionDSc', aData.motionDSc);
+appendNumericDataset(partialAdataPath, '/motionDSr', aData.motionDSr);
+appendNumericDataset(partialAdataPath, '/recNegErr', aData.recNegErr);
+appendNumericDataset(partialAdataPath, '/registrationFailed', aData.registrationFailed);
+appendNumericDataset(partialAdataPath, '/slap2/onlineMotionXshift', aData.onlineXshift);
+appendNumericDataset(partialAdataPath, '/slap2/onlineMotionYshift', aData.onlineYshift);
+appendNumericDataset(partialAdataPath, '/slap2/onlineMotionZshift', aData.onlineZshift);
 if isfield(aData, 'motionDSz')
-    toSave.motionDSz = aData.motionDSz;
+    appendNumericDataset(partialAdataPath, '/motionDSz', aData.motionDSz);
 end
-saveStructToH5(toSave, [mocosavedr filesep fnAdata]);
+
+% Publish only a complete metadata file.
+if exist(adataPath, 'file')
+    delete(adataPath);
 end
+movefile(partialAdataPath, adataPath, 'f');
+end
+
+function workerTable = makeWorkerTable(trialTable, params, DMD_ix)
+%MAKEWORKERTABLE Construct the minimal trial-table view needed by alignAsync.
+% Avoid broadcasting source-extraction state and large reference stacks to
+% every process worker when they are not used.
+
+workerTable = struct();
+workerTable.savedr = trialTable.savedr;
+workerTable.datadr = trialTable.datadr;
+workerTable.filename = trialTable.filename;
+workerTable.epoch = trialTable.epoch;
+workerTable.slap2_info = struct();
+workerTable.slap2_info.first_line = trialTable.slap2_info.first_line;
+workerTable.slap2_info.last_line = trialTable.slap2_info.last_line;
+
+if params.refStackTemplate
+    workerTable.slap2_info.ref_stack = struct();
+    pathKey = ['Path' int2str(DMD_ix)];
+    dmdKey = ['DMD' int2str(DMD_ix)];
+    if isfield(trialTable.slap2_info.ref_stack, pathKey)
+        workerTable.slap2_info.ref_stack.(pathKey) = ...
+            trialTable.slap2_info.ref_stack.(pathKey);
+    elseif isfield(trialTable.slap2_info.ref_stack, dmdKey)
+        workerTable.slap2_info.ref_stack.(dmdKey) = ...
+            trialTable.slap2_info.ref_stack.(dmdKey);
+    else
+        error('MultiRoiRegistration:MissingReferenceStack', ...
+            'No reference stack found for DMD %d.', DMD_ix);
+    end
+end
+
+if params.isReVolt && isfield(trialTable, 'motion_correction') && ...
+        isfield(trialTable.motion_correction, 'first_line_original')
+    workerTable.motion_correction.first_line_original = ...
+        trialTable.motion_correction.first_line_original;
+end
+end
+
+
+function appendNumericDataset(filename, path, val)
+%APPENDNUMERICDATASET Append a numeric/logical dataset without recreating H5.
+% Mirrors saveStructToH5 numeric/logical conventions.
+
+if isempty(val)
+    return
+end
+
+val = gather(val);
+if islogical(val)
+    val = int8(val);
+end
+
+dtype = class(val);
+h5create(filename, path, size(val), 'Datatype', dtype);
+h5write(filename, path, val);
+end
+
 
 function meta = loadMetadata(datFilename)
 ix = strfind(datFilename, 'DMD'+digitsPattern(1));
