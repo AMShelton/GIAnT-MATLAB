@@ -22,7 +22,26 @@ end
 if nargin < 3
     useAllFiles = false;
 end
-unpickedfiles = dir([dr filesep '*.dat']);
+% [AIND PATCH] Support the standard AIND SLAP2 directory layout:
+%   <slap2 root>/dynamic_data/*.dat
+%   <slap2 root>/static_data/...REFERENCE*.tif
+%
+% Keep dr as the SLAP2 root so the recursive reference-stack search below
+% can see static_data, but use datadr for raw acquisition files. Retain
+% backward compatibility with datasets whose DAT files live directly in dr.
+slap2Root = dr;
+dynamicDataDir = fullfile(slap2Root, 'dynamic_data');
+if isfolder(dynamicDataDir)
+    datadr = dynamicDataDir;
+else
+    datadr = slap2Root;
+end
+
+unpickedfiles = dir(fullfile(datadr, '*.dat'));
+if isempty(unpickedfiles)
+    error('buildTrialTableSLAP2:NoDatFiles', ...
+        'No SLAP2 .dat files found in: %s', datadr);
+end
 
 %remove extra 'multicycle' files from list; they will be represented by first file
 pattern = 'CYCLE-?(\d+)'; 
@@ -125,7 +144,7 @@ for DMDix = DMDixs
 
 end
 
-trialTable.datadr = dr;
+trialTable.datadr = datadr; % [AIND PATCH] actual directory containing raw .dat files
 trialTable.savedr = savedr;
 
 trialTable.filename = {};
@@ -143,7 +162,7 @@ for eIx = 1:epoch %for each epoch
     files = epochfiles{eIx};
     disp(['Loading metadata from ' int2str(length(epochfiles{eIx})) ' DAT files...']);
     for fIx = length(files):-1:1
-        hDat = slap2.Slap2DataFile([dr filesep files(fIx).name]);
+        hDat = slap2.Slap2DataFile(fullfile(datadr, files(fIx).name)); % [AIND PATCH]
         numLines(fIx) = hDat.totalNumLines;
     end
 
