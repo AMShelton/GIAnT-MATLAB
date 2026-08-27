@@ -10,6 +10,16 @@ else
 end
 % Fixed values; user/GUI/JSON cannot override these in SILo
 params.minBaseline = 0.01;
+
+% RAM-optimized source-localization settings. These are hidden performance
+% controls rather than scientific parameters; callers may override them in
+% paramsIn without changing source-localization semantics.
+if ~isfield(params, 'localizationTileSize') || isempty(params.localizationTileSize)
+    params.localizationTileSize = 96;
+end
+if ~isfield(params, 'localizationTempDir') || isempty(params.localizationTempDir)
+    params.localizationTempDir = tempdir;
+end
 if ~nargin
     [trialTablefn, dr] =  uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5' );
 else
@@ -68,7 +78,9 @@ if params.drawUserRois
             %load image data (prefer meanIM from alignment H5)
             [~, fn, ext] = fileparts(trialTable.motion_correction.fn_reg_ds{DMDix,firstValidTrial});
             adataFn = trialTable.motion_correction.fn_adata{DMDix, firstValidTrial};
-            aDataAnnot = loadStructFromH5(fullfile(mocodr, adataFn));
+            % Do not load /slap2/varFacDS merely to draw annotations.
+            % Alignment files can contain a multi-GB variance-factor movie.
+            aDataAnnot = loadAlignmentDataLite(fullfile(mocodr, adataFn));
             if isfield(aDataAnnot, 'meanIM') && ~isempty(aDataAnnot.meanIM)
                 IM = squeeze(mean(aDataAnnot.meanIM, 1, 'omitnan')); % numChannels x H x W -> H x W
             else
@@ -113,7 +125,8 @@ for DMDix = nDMDs:-1:1
 
     %load some metadata
     fn = trialTable.motion_correction.fn_adata{DMDix,firstValidTrial};
-    aData = loadStructFromH5(fullfile(mocodr, fn));
+    % Lightweight metadata read: skip /slap2/varFacDS.
+    aData = loadAlignmentDataLite(fullfile(mocodr, fn));
     numChannels = aData.numChannels;
     params.numChannels = numChannels;
     params.alignHz = aData.alignHz;
@@ -131,6 +144,12 @@ for DMDix = nDMDs:-1:1
     clear aData
 
     %set up parallelization
+    % The RAM-optimized localizer never loads /slap2/varFacDS as a full
+    % H x W x T array. The dominant per-worker allocation is therefore the
+    % registered TIFF plus bounded tile workspaces. Estimate a conservative
+    % worker count from TIFF size and available RAM, and also respect the
+    % Processes profile NumWorkers ceiling.
+    nWorkers = 1;
     if params.nWorkers>1
         p = gcp('nocreate');
         if isempty(p)
@@ -138,15 +157,19 @@ for DMDix = nDMDs:-1:1
         else
             poolsize = p.NumWorkers;
         end
-        dd = dir(fullfile(mocodr, trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial}));
-        try
-            fileSize = dd.bytes;
-        catch
-            error(['Error loading registered tiff:' trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial} '\n' 'Are paths in your trial table valid?']);
+
+        dd = dir(fullfile(mocodr, ...
+            trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial}));
+        if isempty(dd)
+            error(['Error loading registered tiff:' ...
+                trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial} ...
+                newline 'Are paths in your trial table valid?']);
         end
+        fileSize = double(dd.bytes);
+
         if ispc
             userMemInfo = memory;
-            memAvailable = userMemInfo.MemAvailableAllArrays;
+            memAvailable = double(userMemInfo.MemAvailableAllArrays);
         elseif ismac
             memAvailable = localMacMemAvailable();
         elseif exist('/proc/meminfo', 'file')
@@ -157,19 +180,47 @@ for DMDix = nDMDs:-1:1
                     'Could not parse MemAvailable from /proc/meminfo; assuming 8 GB.');
                 memAvailable = 8 * 1024^3;
             else
-                memAvailable = memKb * 1024;  % Convert KB to bytes
+                memAvailable = memKb * 1024;
             end
         else
             warning('SILo:MemProbeFailed', ...
                 'Could not determine available memory; assuming 8 GB.');
             memAvailable = 8 * 1024^3;
         end
-        maxWorkers = max(1,min(size(trialTable.filename,2), floor(0.13*memAvailable/fileSize)));
-        nWorkers = min(params.nWorkers, maxWorkers);
-        
-        if poolsize~=nWorkers ||  ~strcmpi(class(p), 'parallel.ProcessPool')
+
+        % During TIFF loading, a deinterleaved activity-channel copy can
+        % briefly coexist with the full registered movie. Tile-localization
+        % then adds bounded work arrays. Reserve ~2.5x the TIFF size plus
+        % 1 GiB per process and use no more than 75% of currently available
+        % memory for localization workers.
+        estimatedWorkerBytes = 2.5*fileSize + 1*1024^3;
+        memoryBudget = 0.75*memAvailable;
+        maxWorkersByMem = max(1, floor(memoryBudget/estimatedWorkerBytes));
+
+        try
+            procCluster = parcluster('Processes');
+            maxWorkersByProfile = procCluster.NumWorkers;
+        catch
+            maxWorkersByProfile = inf;
+        end
+
+        nWorkers = min([params.nWorkers, ...
+            sum(keepTrials(DMDix,:)), ...
+            maxWorkersByMem, ...
+            maxWorkersByProfile]);
+        nWorkers = max(1, floor(nWorkers));
+
+        fprintf(['Localization workers: %d requested, %d selected ' ...
+            '(RAM cap=%d, profile cap=%g)\n'], ...
+            params.nWorkers, nWorkers, maxWorkersByMem, maxWorkersByProfile);
+
+        if nWorkers>1
+            if poolsize~=nWorkers || ~isa(p, 'parallel.ProcessPool')
+                delete(gcp('nocreate'));
+                parpool('processes',nWorkers);
+            end
+        else
             delete(gcp('nocreate'));
-            parpool('processes',nWorkers); %limit the number of workers to avoid running out of RAM
         end
     else
         delete(gcp('nocreate'));
@@ -179,20 +230,35 @@ for DMDix = nDMDs:-1:1
     disp('Loading data and performing localizations...')
     mIM = cell(1, nTrials); aIM = cell(1,nTrials); alignData = cell(1, nTrials); peaks = cell(1, nTrials); discardFrames = cell(1,nTrials);
     fns = trialTable.motion_correction.fn_reg_ds(DMDix, :);
-    parfor trialIx = 1:nTrials
-        if keepTrials(DMDix,trialIx)
-            [~, mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}]= loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params);
+    if nWorkers>1
+        parfor trialIx = 1:nTrials
+            if keepTrials(DMDix,trialIx)
+                [mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}] = ...
+                    loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params);
+            end
+        end
+    else
+        % Avoid MATLAB silently auto-starting a default parallel pool when
+        % the memory model has selected a single worker.
+        for trialIx = 1:nTrials
+            if keepTrials(DMDix,trialIx)
+                [mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}] = ...
+                    loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params);
+            end
         end
     end
     %Assemble same-sized mean images from different-sized trial means
     szm1 = max(cellfun(@(x)size(x,1),mIM)); szm2 = max(cellfun(@(x)size(x,2), aIM));
-    meanIM = nan(szm1,szm2,numChannels, nTrials); activIM = nan(szm1,szm2,1, nTrials);
+    % Visualization/localization images do not require double precision.
+    meanIM = nan(szm1,szm2,numChannels,nTrials,'single');
+    activIM = nan(szm1,szm2,1,nTrials,'single');
     for trialIx = 1:nTrials
         tmp =  mIM{trialIx};
         meanIM(1:size(tmp,1),1:size(tmp,2),:,trialIx) = tmp;
         tmp =  aIM{trialIx};
         activIM(1:size(tmp,1),1:size(tmp,2),:,trialIx) = tmp;
     end
+    clear mIM aIM tmp
 
     %Make template
     disp('Making template for aligning across trials...')
@@ -203,15 +269,16 @@ for DMDix = nDMDs:-1:1
 
     %align all mean images to template
     disp('Aligning across trials...')
-    meanAligned = [];
-    actAligned = nan(size(meanIM,1), size(meanIM,2),1,nTrials);
+    meanAligned = nan(size(meanIM),'single');
+    actAligned = nan(size(meanIM,1),size(meanIM,2),1,nTrials,'single');
     corrCoeff = nan(1,nTrials);
     motOutput = nan(2,nTrials);
-    Mpad = nan([size(template) size(M,3)]);
+    Mpad = nan([size(template) size(M,3)],'single');
     Mpad(maxshift+(1:size(M,1)), maxshift+(1:size(M,2)),:) = M;
 
     fillval = min(template(:),[], 'omitnan')-1;
     tFFT = fft2(max(template, fillval));
+    [rr,cc] = ndgrid(1:size(meanIM,1), 1:size(meanIM,2));
     for trialIx = nTrials:-1:1
         if ~keepTrials(DMDix,trialIx) || all(isnan(activIM(:,:,1,trialIx)), 'all')
             disp(['skipping trial, dmd:' int2str(trialIx) ' ' int2str(DMDix)])
@@ -222,7 +289,6 @@ for DMDix = nDMDs:-1:1
         output1 = dftregistration_clipped(tFFT, fft2(max(Mpad(:,:,trialIx), fillval)),1,80);
         mot1 = [-output1(3) -output1(4)];
         [motOutput(:,trialIx), corrCoeff(trialIx)] = xcorr2_nans(Mpad(:,:,trialIx), template, round(mot1'), maxshift);
-        [rr,cc] = ndgrid(1:size(meanIM,1), 1:size(meanIM,2));
 
         for chIx = 1:size(meanIM,3)
             meanAligned(:,:,chIx,trialIx) = interp2(meanIM(:,:,chIx,trialIx), cc+motOutput(2,trialIx), rr+motOutput(1,trialIx));
@@ -245,6 +311,7 @@ for DMDix = nDMDs:-1:1
     actIM = actIM-medIM; %subtract a local baseline
     exptSummary.actIM{DMDix} = actIM;
     sz = size(actIM);
+    clear M Mpad tFFT
 
     %Mask out somata from activity image
     somaMask = false(size(actIM));
@@ -332,13 +399,15 @@ for DMDix = nDMDs:-1:1
     exptSummary.aData(:,DMDix) = alignData;
     exptSummary.userROIs{DMDix} = roiData;
     exptSummary.peaks{DMDix}= peaks;
-    exptSummary.perTrialMeanIMs{DMDix} = meanIM;
+    % Only aligned per-trial images are consumed by the current HDF5
+    % writers. Avoid retaining duplicate unaligned stacks in exptSummary.
+    exptSummary.perTrialMeanIMs{DMDix} = [];
     exptSummary.perTrialMeanIMsAligned{DMDix} = meanAligned;
-    exptSummary.perTrialActIms{DMDix} = actIM;
+    exptSummary.perTrialActIms{DMDix} = [];
     exptSummary.perTrialActIMsAligned{DMDix} = actAligned;
     exptSummary.perTrialAlignmentOffsets{DMDix} = motOutput;
 
-    clear meanAligned meanIM actAligned E
+    clear meanAligned meanIM activIM actAligned E
 end
 
 % Shut down the parallel pool explicitly so thread-pool arrays are

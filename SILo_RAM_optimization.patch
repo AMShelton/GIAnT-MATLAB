@@ -1,0 +1,952 @@
+--- a/source_extraction/SILo.m
++++ b/source_extraction/SILo.m
+@@ -10,6 +10,16 @@
+ end
+ % Fixed values; user/GUI/JSON cannot override these in SILo
+ params.minBaseline = 0.01;
++
++% RAM-optimized source-localization settings. These are hidden performance
++% controls rather than scientific parameters; callers may override them in
++% paramsIn without changing source-localization semantics.
++if ~isfield(params, 'localizationTileSize') || isempty(params.localizationTileSize)
++    params.localizationTileSize = 96;
++end
++if ~isfield(params, 'localizationTempDir') || isempty(params.localizationTempDir)
++    params.localizationTempDir = tempdir;
++end
+ if ~nargin
+     [trialTablefn, dr] =  uigetfile('*.h5', 'Select a trial_table file', '*trial_table*.h5' );
+ else
+@@ -68,7 +78,9 @@
+             %load image data (prefer meanIM from alignment H5)
+             [~, fn, ext] = fileparts(trialTable.motion_correction.fn_reg_ds{DMDix,firstValidTrial});
+             adataFn = trialTable.motion_correction.fn_adata{DMDix, firstValidTrial};
+-            aDataAnnot = loadStructFromH5(fullfile(mocodr, adataFn));
++            % Do not load /slap2/varFacDS merely to draw annotations.
++            % Alignment files can contain a multi-GB variance-factor movie.
++            aDataAnnot = loadAlignmentDataLite(fullfile(mocodr, adataFn));
+             if isfield(aDataAnnot, 'meanIM') && ~isempty(aDataAnnot.meanIM)
+                 IM = squeeze(mean(aDataAnnot.meanIM, 1, 'omitnan')); % numChannels x H x W -> H x W
+             else
+@@ -113,7 +125,8 @@
+ 
+     %load some metadata
+     fn = trialTable.motion_correction.fn_adata{DMDix,firstValidTrial};
+-    aData = loadStructFromH5(fullfile(mocodr, fn));
++    % Lightweight metadata read: skip /slap2/varFacDS.
++    aData = loadAlignmentDataLite(fullfile(mocodr, fn));
+     numChannels = aData.numChannels;
+     params.numChannels = numChannels;
+     params.alignHz = aData.alignHz;
+@@ -131,6 +144,12 @@
+     clear aData
+ 
+     %set up parallelization
++    % The RAM-optimized localizer never loads /slap2/varFacDS as a full
++    % H x W x T array. The dominant per-worker allocation is therefore the
++    % registered TIFF plus bounded tile workspaces. Estimate a conservative
++    % worker count from TIFF size and available RAM, and also respect the
++    % Processes profile NumWorkers ceiling.
++    nWorkers = 1;
+     if params.nWorkers>1
+         p = gcp('nocreate');
+         if isempty(p)
+@@ -138,15 +157,19 @@
+         else
+             poolsize = p.NumWorkers;
+         end
+-        dd = dir(fullfile(mocodr, trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial}));
+-        try
+-            fileSize = dd.bytes;
+-        catch
+-            error(['Error loading registered tiff:' trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial} '\n' 'Are paths in your trial table valid?']);
+-        end
++
++        dd = dir(fullfile(mocodr, ...
++            trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial}));
++        if isempty(dd)
++            error(['Error loading registered tiff:' ...
++                trialTable.motion_correction.fn_reg_ds{DMDix, firstValidTrial} ...
++                newline 'Are paths in your trial table valid?']);
++        end
++        fileSize = double(dd.bytes);
++
+         if ispc
+             userMemInfo = memory;
+-            memAvailable = userMemInfo.MemAvailableAllArrays;
++            memAvailable = double(userMemInfo.MemAvailableAllArrays);
+         elseif ismac
+             memAvailable = localMacMemAvailable();
+         elseif exist('/proc/meminfo', 'file')
+@@ -157,19 +180,47 @@
+                     'Could not parse MemAvailable from /proc/meminfo; assuming 8 GB.');
+                 memAvailable = 8 * 1024^3;
+             else
+-                memAvailable = memKb * 1024;  % Convert KB to bytes
++                memAvailable = memKb * 1024;
+             end
+         else
+             warning('SILo:MemProbeFailed', ...
+                 'Could not determine available memory; assuming 8 GB.');
+             memAvailable = 8 * 1024^3;
+         end
+-        maxWorkers = max(1,min(size(trialTable.filename,2), floor(0.13*memAvailable/fileSize)));
+-        nWorkers = min(params.nWorkers, maxWorkers);
+-        
+-        if poolsize~=nWorkers ||  ~strcmpi(class(p), 'parallel.ProcessPool')
++
++        % During TIFF loading, a deinterleaved activity-channel copy can
++        % briefly coexist with the full registered movie. Tile-localization
++        % then adds bounded work arrays. Reserve ~2.5x the TIFF size plus
++        % 1 GiB per process and use no more than 75% of currently available
++        % memory for localization workers.
++        estimatedWorkerBytes = 2.5*fileSize + 1*1024^3;
++        memoryBudget = 0.75*memAvailable;
++        maxWorkersByMem = max(1, floor(memoryBudget/estimatedWorkerBytes));
++
++        try
++            procCluster = parcluster('Processes');
++            maxWorkersByProfile = procCluster.NumWorkers;
++        catch
++            maxWorkersByProfile = inf;
++        end
++
++        nWorkers = min([params.nWorkers, ...
++            sum(keepTrials(DMDix,:)), ...
++            maxWorkersByMem, ...
++            maxWorkersByProfile]);
++        nWorkers = max(1, floor(nWorkers));
++
++        fprintf(['Localization workers: %d requested, %d selected ' ...
++            '(RAM cap=%d, profile cap=%g)\n'], ...
++            params.nWorkers, nWorkers, maxWorkersByMem, maxWorkersByProfile);
++
++        if nWorkers>1
++            if poolsize~=nWorkers || ~isa(p, 'parallel.ProcessPool')
++                delete(gcp('nocreate'));
++                parpool('processes',nWorkers);
++            end
++        else
+             delete(gcp('nocreate'));
+-            parpool('processes',nWorkers); %limit the number of workers to avoid running out of RAM
+         end
+     else
+         delete(gcp('nocreate'));
+@@ -179,20 +230,35 @@
+     disp('Loading data and performing localizations...')
+     mIM = cell(1, nTrials); aIM = cell(1,nTrials); alignData = cell(1, nTrials); peaks = cell(1, nTrials); discardFrames = cell(1,nTrials);
+     fns = trialTable.motion_correction.fn_reg_ds(DMDix, :);
+-    parfor trialIx = 1:nTrials
+-        if keepTrials(DMDix,trialIx)
+-            [~, mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}]= loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params);
++    if nWorkers>1
++        parfor trialIx = 1:nTrials
++            if keepTrials(DMDix,trialIx)
++                [mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}] = ...
++                    loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params);
++            end
++        end
++    else
++        % Avoid MATLAB silently auto-starting a default parallel pool when
++        % the memory model has selected a single worker.
++        for trialIx = 1:nTrials
++            if keepTrials(DMDix,trialIx)
++                [mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}] = ...
++                    loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params);
++            end
+         end
+     end
+     %Assemble same-sized mean images from different-sized trial means
+     szm1 = max(cellfun(@(x)size(x,1),mIM)); szm2 = max(cellfun(@(x)size(x,2), aIM));
+-    meanIM = nan(szm1,szm2,numChannels, nTrials); activIM = nan(szm1,szm2,1, nTrials);
++    % Visualization/localization images do not require double precision.
++    meanIM = nan(szm1,szm2,numChannels,nTrials,'single');
++    activIM = nan(szm1,szm2,1,nTrials,'single');
+     for trialIx = 1:nTrials
+         tmp =  mIM{trialIx};
+         meanIM(1:size(tmp,1),1:size(tmp,2),:,trialIx) = tmp;
+         tmp =  aIM{trialIx};
+         activIM(1:size(tmp,1),1:size(tmp,2),:,trialIx) = tmp;
+     end
++    clear mIM aIM tmp
+ 
+     %Make template
+     disp('Making template for aligning across trials...')
+@@ -203,15 +269,16 @@
+ 
+     %align all mean images to template
+     disp('Aligning across trials...')
+-    meanAligned = [];
+-    actAligned = nan(size(meanIM,1), size(meanIM,2),1,nTrials);
++    meanAligned = nan(size(meanIM),'single');
++    actAligned = nan(size(meanIM,1),size(meanIM,2),1,nTrials,'single');
+     corrCoeff = nan(1,nTrials);
+     motOutput = nan(2,nTrials);
+-    Mpad = nan([size(template) size(M,3)]);
++    Mpad = nan([size(template) size(M,3)],'single');
+     Mpad(maxshift+(1:size(M,1)), maxshift+(1:size(M,2)),:) = M;
+ 
+     fillval = min(template(:),[], 'omitnan')-1;
+     tFFT = fft2(max(template, fillval));
++    [rr,cc] = ndgrid(1:size(meanIM,1), 1:size(meanIM,2));
+     for trialIx = nTrials:-1:1
+         if ~keepTrials(DMDix,trialIx) || all(isnan(activIM(:,:,1,trialIx)), 'all')
+             disp(['skipping trial, dmd:' int2str(trialIx) ' ' int2str(DMDix)])
+@@ -222,7 +289,6 @@
+         output1 = dftregistration_clipped(tFFT, fft2(max(Mpad(:,:,trialIx), fillval)),1,80);
+         mot1 = [-output1(3) -output1(4)];
+         [motOutput(:,trialIx), corrCoeff(trialIx)] = xcorr2_nans(Mpad(:,:,trialIx), template, round(mot1'), maxshift);
+-        [rr,cc] = ndgrid(1:size(meanIM,1), 1:size(meanIM,2));
+ 
+         for chIx = 1:size(meanIM,3)
+             meanAligned(:,:,chIx,trialIx) = interp2(meanIM(:,:,chIx,trialIx), cc+motOutput(2,trialIx), rr+motOutput(1,trialIx));
+@@ -245,6 +311,7 @@
+     actIM = actIM-medIM; %subtract a local baseline
+     exptSummary.actIM{DMDix} = actIM;
+     sz = size(actIM);
++    clear M Mpad tFFT
+ 
+     %Mask out somata from activity image
+     somaMask = false(size(actIM));
+@@ -332,13 +399,15 @@
+     exptSummary.aData(:,DMDix) = alignData;
+     exptSummary.userROIs{DMDix} = roiData;
+     exptSummary.peaks{DMDix}= peaks;
+-    exptSummary.perTrialMeanIMs{DMDix} = meanIM;
++    % Only aligned per-trial images are consumed by the current HDF5
++    % writers. Avoid retaining duplicate unaligned stacks in exptSummary.
++    exptSummary.perTrialMeanIMs{DMDix} = [];
+     exptSummary.perTrialMeanIMsAligned{DMDix} = meanAligned;
+-    exptSummary.perTrialActIms{DMDix} = actIM;
++    exptSummary.perTrialActIms{DMDix} = [];
+     exptSummary.perTrialActIMsAligned{DMDix} = actAligned;
+     exptSummary.perTrialAlignmentOffsets{DMDix} = motOutput;
+ 
+-    clear meanAligned meanIM actAligned E
++    clear meanAligned meanIM activIM actAligned E
+ end
+ 
+ % Shut down the parallel pool explicitly so thread-pool arrays are
+--- a/dependencies/extraction/activityImage/loadAndProcessTrialAsync.m
++++ b/dependencies/extraction/activityImage/loadAndProcessTrialAsync.m
+@@ -1,47 +1,88 @@
+-function  [IM, meanIM, IMc, aData, peaks, discardFrames]= loadAndProcessTrialAsync(mocoDr, fn, numChannels, params)
+-% mocoDr: directory with motion-corrected outputs (downsampled registered TIFF/H5 and *_ALIGNMENTDATA.h5).
++function [meanIM, IMc, aData, peaks, discardFrames] = ...
++    loadAndProcessTrialAsync(mocoDr, fn, numChannels, params)
++%LOADANDPROCESSTRIALASYNC Load one registered trial and localize activity.
++%
++% The legacy helper returned the full registered activity movie as output 1,
++% even though SILo discarded it. This RAM-optimized internal API returns only
++% the compact products that SILo actually consumes.
++%
++% RAM-optimized GIAnT variant:
++%   * alignment metadata are loaded without /slap2/varFacDS;
++%   * varFacDS is passed to localizeSources_vIM as an on-disk HDF5 source;
++%   * the full variance-factor movie is never materialized in this function.
++
+     if endsWith(fn, '.h5')
+-        desc = h5info([mocoDr filesep fn]);
+-        IM = h5read([mocoDr filesep fn], ['/', desc.Datasets.Name]);
++        desc = h5info(fullfile(mocoDr, fn));
++        IM = h5read(fullfile(mocoDr, fn), ['/', desc.Datasets.Name]);
+     else
+-        IM = ScanImageTiffWrapper([mocoDr filesep fn]);
++        IM = ScanImageTiffWrapper(fullfile(mocoDr, fn));
+     end
+-    IM = reshape(IM, size(IM,1), size(IM,2), numChannels, []); %deinterleave;
++    IM = reshape(IM, size(IM,1), size(IM,2), numChannels, []); % deinterleave
+ 
+-    meanIM= mean(IM,4, 'omitnan');
+-    nanPx = repmat(mean(isnan(IM), [3 4])>params.nanThresh, 1,1,size(IM,3));
+-    meanIM(nanPx) = nan;
++    % Keep mean images compact. Mean() preserves single when IM is single.
++    meanIM = mean(IM, 4, 'omitnan');
++    nanPx = mean(isnan(IM), [3 4]) > params.nanThresh;
++    for cix = 1:size(meanIM,3)
++        tmp = meanIM(:,:,cix);
++        tmp(nanPx) = nan;
++        meanIM(:,:,cix) = tmp;
++    end
+ 
++    % Retain only the activity channel before source localization. This
++    % releases the multi-channel registered movie once MATLAB drops the old
++    % array after assignment.
+     IM = squeeze(IM(:,:,params.activityChannel,:));
+ 
+-    %load alignment data
+-    fnStemEnd = strfind(fn, '_REGISTERED') -1;
+-    aData = loadStructFromH5([mocoDr filesep fn(1:fnStemEnd) '_ALIGNMENTDATA.h5']);
+-    aData.dsFac = 1; %SLAP2 data does not have downsampling per se
++    % Load lightweight alignment metadata. Do NOT use loadStructFromH5 here:
++    % current alignment files may contain a multi-GB /slap2/varFacDS movie.
++    fnStemEnd = strfind(fn, '_REGISTERED') - 1;
++    alignmentPath = fullfile(mocoDr, ...
++        [fn(1:fnStemEnd) '_ALIGNMENTDATA.h5']);
++    aData = loadAlignmentDataLite(alignmentPath);
++    aData.dsFac = 1; % SLAP2 data does not have downsampling per se
+     params.dsFac = aData.dsFac;
+     params.alignHz = aData.alignHz;
+-    nInitFrames = ceil(params.discardInitial_s * params.alignHz); %initial frames to discard
++    nInitFrames = ceil(params.discardInitial_s * params.alignHz);
+ 
+-    %discard motion frames
+-    tmp = aData.recNegErr(:)- medfilt1(aData.recNegErr(:), round(4*params.alignHz)); %smoothExp(aData.recNegErr(:),'movmedian', ceil(2/(aData.frametime*aData.dsFac))); %-smoothdata(aData.aRankCorrDS,2, 'movmedian', ceil(2/aData.frametime));
+-    tmp = -tmp./(min(-0.005, prctile(tmp,5))); %normalize to the median-to-5th prctile interval, or 0.5% of intensity, whichever is larger
+-    thresh = params.motionThresh; %decrease thresh to be more stringent on motion correction
+-    window = 2*ceil(0.025*params.alignHz)+1;% a window in time to censor aronud motion events, ~50 milliseconds;
+-    discardFrames = imclose(imdilate(tmp>thresh, ones(window,1)) & (tmp>(thresh/2)), ones(window,1));
+-    discardFrames(1:nInitFrames) = true;
++    % Discard motion frames.
++    tmp = aData.recNegErr(:) - ...
++        medfilt1(aData.recNegErr(:), round(4*params.alignHz));
++    tmp = -tmp ./ min(-0.005, prctile(tmp,5));
++    thresh = params.motionThresh;
++    window = 2*ceil(0.025*params.alignHz)+1;
++    discardFrames = imclose( ...
++        imdilate(tmp>thresh, ones(window,1)) & (tmp>(thresh/2)), ...
++        ones(window,1));
++    discardFrames(1:min(nInitFrames, numel(discardFrames))) = true;
+     IM(:,:,discardFrames) = nan;
+-    if isfield(aData, 'slap2') && isfield(aData.slap2, 'varFacDS')
+-        vIM = aData.slap2.varFacDS;
+-        aData.slap2 = rmfield(aData.slap2, 'varFacDS');
+-    else
+-        vIM = [];
++
++    % Describe varFacDS lazily instead of loading H x W x T into RAM.
++    vSource = [];
++    if h5DatasetExists(alignmentPath, '/slap2/varFacDS')
++        vSource = struct( ...
++            'filename', alignmentPath, ...
++            'dataset', '/slap2/varFacDS');
+     end
+ 
+     try
+-       [IMc, peaks] = localizeSources_vIM(IM, vIM, params);
++        [IMc, peaks] = localizeSources_vIM(IM, vSource, params);
+     catch ME
++        % Preserve existing edge-artifact retry behavior.
+         IM([1 end],:,:) = nan;
+         IM(:,[1 end],:) = nan;
+-        [IMc, peaks] = localizeSources_vIM(IM, vIM, params);
++        [IMc, peaks] = localizeSources_vIM(IM, vSource, params);
++        warning('loadAndProcessTrialAsync:LocalizationRetry', ...
++            'Localization succeeded after masking image edges. Initial error: %s', ...
++            ME.message);
+     end
+-end+end
++
++
++function tf = h5DatasetExists(filename, datasetPath)
++tf = false;
++try
++    h5info(filename, datasetPath);
++    tf = true;
++catch
++end
++end
+--- a/dependencies/extraction/activityImage/localizeSources_vIM.m
++++ b/dependencies/extraction/activityImage/localizeSources_vIM.m
+@@ -1,136 +1,406 @@
+ function [skIm, P] = localizeSources_vIM(IM, vIM, params, doPlot)
+-%inputs:
+-%IM:        3D recording, X x Y x Time
+-%aData:     alignment metadata
+-nTimePoints = size(IM,3);
+-tau = params.tau_s.*params.alignHz; %time constant in frames
++%LOCALIZESOURCES_VIM Localize activity sources with bounded RAM usage.
++%
++% Inputs
++%   IM     - H x W x T activity-channel registered movie.
++%   vIM    - either:
++%              []                         -> unit variance factor
++%              numeric H x W x T          -> legacy in-memory variance
++%              struct with fields
++%                   .filename              -> alignment H5
++%                   .dataset               -> usually /slap2/varFacDS
++%   params - SILo parameters.
++%
++% RAM optimization
++% ----------------
++% The legacy implementation simultaneously materialized several H x W x T
++% arrays (IM, varFacDS, smoothed variance, baseline, filtered activity, and
++% local-max masks). For SLAP2 this can require many GB per worker.
++%
++% This implementation preserves the same source-localization operations but
++% performs them in spatial tiles. Temporal filters still see the complete
++% time series for every pixel, while each tile carries a halo large enough
++% for the spatial Difference-of-Gaussians/local-maximum operations. The
++% variance movie is read lazily from HDF5, so /slap2/varFacDS never needs to
++% exist as a full MATLAB array.
++
++if nargin < 4
++    doPlot = false;
++end
++
++if ~isa(IM, 'single')
++    IM = single(IM);
++end
++
++sz = size(IM);
++if numel(sz) < 3
++    sz(3) = 1;
++end
++H = sz(1); W = sz(2); nTimePoints = sz(3);
++
++tau = params.tau_s .* params.alignHz;
+ params.tau_frames = tau;
+-sigma = params.sigma_px; %space constant in pixels
+-baselineWindow = ceil(params.baselineWindow_Glu_s.*params.alignHz);
+-denoiseWindow = ceil(params.denoiseWindow_s.*params.alignHz);
+-nans = isnan(IM);
+-
+-sz = size(IM);
+-valid = mean(nans,3)<params.nanThresh; %a pixel must be imaged at least (1-nanThresh) of the time to be included
+-if ~any(valid)
++sigma = params.sigma_px;
++baselineWindow = ceil(params.baselineWindow_Glu_s .* params.alignHz);
++denoiseWindow = ceil(params.denoiseWindow_s .* params.alignHz);
++varSmoothWindow = ceil(denoiseWindow/2);
++
++% Hidden performance setting. It intentionally need not appear in optionsGUI;
++% users can still pass params.localizationTileSize explicitly if desired.
++if ~isfield(params, 'localizationTileSize') || isempty(params.localizationTileSize)
++    tileSize = 96;
++else
++    tileSize = max(16, round(params.localizationTileSize));
++end
++
++% Pixel inclusion is identical to the legacy implementation.
++nanFrac = mean(isnan(IM), 3);
++valid = nanFrac < params.nanThresh;
++if ~any(valid, 'all')
+     warning('Recording had no valid pixels; likely too much motion')
+     P = [];
+-    skIm = nan(sz(1:2));
+-    return
+-end
+-if nargin<4
+-    doPlot = false;
+-end
+-
+-if isempty(vIM) %for raster imaging
+-    vIM = ones(sz);
+-end
+-
+-%initialize filtered image
+-IMf = IM; clear IM;
+-IMf(repmat(~valid, 1, 1, nTimePoints)) = nan;
+-nans = isnan(IMf);
+-nanFrac = mean(nans,3);
+-vIM(nans) = nan; %1000*mean(vIM(:,:, 1:min(end,400)), 'all', 'omitnan');
+-
+-% %fill in missing values
+-% IMf= reshape(IMf, sz(1)*sz(2), []);
+-% incomplete = nanFrac>0 & nanFrac<1;
+-% IMs = nan(size(IMf));
+-% IMs(incomplete(:),:) = smoothdata(IMf(incomplete(:),:), 2, 'movmean', baselineWindow, 'omitnan');
+-% IMf(reshape(nans, size(IMf))) = IMs(reshape(nans, size(IMf))); clear IMs
+-% IMf = reshape(IMf, sz(1),sz(2), []);
+-
+-%smooth the data at a timescale on which fluctuations look more
+-%gaussian, for computing variances
+-IMs = smoothdata(IMf./vIM, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
+-vIM = 1./smoothdata(1./vIM, 3, 'movmean', ceil(denoiseWindow/2), 'omitnan');
+-IMs = IMs.*vIM;
+-
+-%baseline estimate
+-IMb = smoothdata(IMs, 3, 'movmedian', baselineWindow, 'omitnan');
+-
+-%estimate Vb and Vk, parameters for estimating variance from baseline brightness
+-% Vb: the variance of a 'dim' pixel due to electronic and dark noise
+-% Vk: the slope of the variance-brightness relationship
+-firstValidFrames = find(any(~nans, [1 2]),500, 'first');
+-varIM = var(IMs(:,:,firstValidFrames),0,3,"omitmissing");
++    skIm = nan(H,W,'single');
++    return
++end
++
++% Resolve the variance source. For alignment H5 files written with the old
++% full-frame chunk layout, transparently create a spatially chunked local
++% cache once. This prevents every spatial tile from repeatedly reading every
++% full-frame HDF5 chunk over network storage.
++[varSource, cleanupObj] = prepareVarianceSource(vIM, [H W nTimePoints], tileSize, params); %#ok<NASGU>
++
++% Find the first 500 frames containing data in globally valid pixels without
++% constructing a full H x W x T logical mask.
++frameHasData = false(1,nTimePoints);
++for r0 = 1:tileSize:H
++    r1 = min(H, r0+tileSize-1);
++    for c0 = 1:tileSize:W
++        c1 = min(W, c0+tileSize-1);
++        validTile = valid(r0:r1,c0:c1);
++        if ~any(validTile,'all')
++            continue
++        end
++        raw = IM(r0:r1,c0:c1,:);
++        raw2 = reshape(raw, [], nTimePoints);
++        frameHasData = frameHasData | any(~isnan(raw2(validTile(:),:)),1);
++        clear raw raw2
++    end
++end
++firstValidFrames = find(frameHasData, 500, 'first');
++if isempty(firstValidFrames)
++    warning('Recording had no valid frames after pixel validity screening.')
++    P = [];
++    skIm = nan(H,W,'single');
++    return
++end
++
++%% Estimate global variance model using a bounded calibration interval
++% IMb at the first 500 valid frames depends on nearby future samples. Use a
++% deliberately generous look-ahead so centered movmean/movmedian operations
++% match a full-recording calculation at those calibration frames.
++lookAhead = baselineWindow + varSmoothWindow + 4;
++calEnd = min(nTimePoints, max(firstValidFrames) + lookAhead);
++
++varIM = nan(H,W,'single');
++varPred = nan(H,W,'single');
++
++for r0 = 1:tileSize:H
++    r1 = min(H, r0+tileSize-1);
++    for c0 = 1:tileSize:W
++        c1 = min(W, c0+tileSize-1);
++        validTile = valid(r0:r1,c0:c1);
++        if ~any(validTile,'all')
++            continue
++        end
++
++        raw = IM(r0:r1,c0:c1,1:calEnd);
++        raw = applyValidityMask(raw, validTile);
++        v = readVarianceBlock(varSource, r0, r1, c0, c1, 1, calEnd);
++        v(isnan(raw)) = nan;
++
++        [IMs, vSm] = varianceWeightedSmooth(raw, v, varSmoothWindow);
++        IMb = smoothdata(IMs, 3, 'movmedian', baselineWindow, 'omitnan');
++
++        fv = firstValidFrames(firstValidFrames <= calEnd);
++        varIM(r0:r1,c0:c1) = var(IMs(:,:,fv), 0, 3, 'omitmissing');
++        varPred(r0:r1,c0:c1) = ...
++            mean(IMb(:,:,fv),3,'omitmissing') .* ...
++            mean(vSm(:,:,fv),3,'omitmissing');
++
++        clear raw v IMs vSm IMb
++    end
++end
++
+ varIM(nanFrac>0.4) = nan;
+-Vb = params.VIF*prctile(varIM, 10, 'all');
+-varPred = mean(IMb(:,:,firstValidFrames),3,'omitmissing').* mean(vIM(:,:,firstValidFrames),3,'omitmissing');
+-selBright = varPred>prctile(varPred(:), 90);
+-Vk = prctile((varIM(selBright)-(Vb/params.VIF))./varPred(selBright), 10);
+-
+-%Highpass filter in time; This must occur before DoG to avoid edge artifacts
+-IMf = IMf - IMb; 
+-
+-stdIM = sqrt(max(0,Vk.*IMb.*vIM)+Vb); %compute standard deviation
+-%divide by uncertainty to get a Z-score
+-IMf = IMf./stdIM;
+-clear IMb vIM
+-
+-%time matched filter
++Vb = params.VIF * prctile(varIM, 10, 'all');
++brightThresh = prctile(varPred(:), 90);
++selBright = varPred > brightThresh;
++Vk = prctile((varIM(selBright) - (Vb/params.VIF)) ./ varPred(selBright), 10);
++
++if isempty(Vk) || ~isfinite(Vk)
++    error('localizeSources_vIM:VarianceModelFailed', ...
++        'Could not estimate the variance-brightness slope Vk.');
++end
++
++%% Tile-wise matched filtering and source score accumulation
++% imgaussfilt default support is approximately +/- 2*sigma. The broader DoG
++% component has sigma=5*sigma, so +/-10*sigma plus one pixel for local-max
++% comparison safely protects the core of each tile from tile-edge effects.
++halo = max(2, ceil(10*sigma) + 2);
++skIm = zeros(H,W,'single');
++lastPeakFrame = nTimePoints - ceil(1.5*tau);
+ gamma = exp(-1/tau);
+-mem = max(0,gamma*IMf(:,:,end));
+-for t = size(IMf,3):-1:1
+-    IMt = IMf(:,:,t);
+-    nanst = isnan(IMt);
+-    IMt(nanst) = mem(nanst);
+-    IMf(:,:,t) = gamma*mem + (1-gamma)*IMt;
+-    mem = IMf(:,:,t);
+-end
+-IMf(nans) = nan;
+-
+-%Difference of Gaussians
+-IMf(nans) = 0;
+-IMf = imgaussfilt(IMf, [sigma sigma]);
+-IMf = IMf - imgaussfilt(IMf, 5*[sigma sigma]);
+-IMf(nans) = nan;
+-
+-%nonmax suppression- find maxima
+-skIm = zeros(sz(1:2));
+-for fr = size(IMf,3)-ceil(1.5*tau):-1:2 %ceil(tau) because the filtering is uncertain in the final frames
+-    
+-    IMfr = IMf(:,:,fr); IMpre = IMf(:,:,fr-1); IMpost = IMf(:,:,fr+1);
+-    
+-    selMax = IMfr==ordfilt2(IMfr,9, ones(3));
+-    IMlocalMax(:,:,fr) = selMax & IMfr>IMpre & IMfr>=IMpost;
+-    %maxinds = find(IMfr==ordfilt2(IMfr,9, ones(3)));
+-    % sel = IMfr(maxinds)>0 & IMpre(maxinds)<=IMfr(maxinds) & IMpost(maxinds)<=IMfr(maxinds);
+-    % %sel = IMpre(maxinds)<=IMfr(maxinds) & IMpost(maxinds)<=IMfr(maxinds);
+-    % maxinds = maxinds(sel);
+-    skIm(IMlocalMax(:,:,fr)) = skIm(IMlocalMax(:,:,fr)) + IMfr(IMlocalMax(:,:,fr)).^2; 
+-end
+-skIm = skIm./(300+sum(~nans(:,:,2:end-ceil(1.5*tau)),3)); %normalize to # observations w regularizer
+-clear nans
+-
+-%summary = skewness(IMf(:,:, 1:end-3*ceil(tau)), 1,3); %.*IMgamma; 
++
++for r0 = 1:tileSize:H
++    r1 = min(H, r0+tileSize-1);
++    er0 = max(1, r0-halo);
++    er1 = min(H, r1+halo);
++    coreR = (r0:r1) - er0 + 1;
++
++    for c0 = 1:tileSize:W
++        c1 = min(W, c0+tileSize-1);
++        ec0 = max(1, c0-halo);
++        ec1 = min(W, c1+halo);
++        coreC = (c0:c1) - ec0 + 1;
++
++        validTile = valid(er0:er1,ec0:ec1);
++        if ~any(validTile(coreR,coreC),'all')
++            skIm(r0:r1,c0:c1) = nan;
++            continue
++        end
++
++        raw = IM(er0:er1,ec0:ec1,:);
++        raw = applyValidityMask(raw, validTile);
++        nansTile = isnan(raw);
++
++        v = readVarianceBlock(varSource, er0, er1, ec0, ec1, 1, nTimePoints);
++        v(nansTile) = nan;
++
++        [IMs, vSm] = varianceWeightedSmooth(raw, v, varSmoothWindow);
++        IMb = smoothdata(IMs, 3, 'movmedian', baselineWindow, 'omitnan');
++
++        % High-pass and normalize by estimated uncertainty.
++        Z = (raw - IMb) ./ sqrt(max(0, Vk .* IMb .* vSm) + Vb);
++        clear raw v IMs vSm IMb
++
++        % Time-matched causal/reverse exponential filter. Keep the internal
++        % memory state even where the original sample is NaN, then restore
++        % NaNs exactly as in the legacy implementation.
++        mem = max(0, gamma * Z(:,:,end));
++        for t = nTimePoints:-1:1
++            Zt = Z(:,:,t);
++            nt = isnan(Zt);
++            Zt(nt) = mem(nt);
++            Z(:,:,t) = gamma*mem + (1-gamma)*Zt;
++            mem = Z(:,:,t);
++        end
++        Z(nansTile) = nan;
++
++        % Difference of Gaussians in space only.
++        Z(nansTile) = 0;
++        dog = imgaussfilt(Z, [sigma sigma]);
++        dog = dog - imgaussfilt(Z, 5*[sigma sigma]);
++        clear Z
++        dog(nansTile) = nan;
++
++        tileSk = zeros(size(dog,1),size(dog,2),'single');
++        for fr = lastPeakFrame:-1:2
++            IMfr = dog(:,:,fr);
++            IMpre = dog(:,:,fr-1);
++            IMpost = dog(:,:,fr+1);
++            selMax = IMfr == ordfilt2(IMfr, 9, ones(3));
++            peakMask = selMax & IMfr>IMpre & IMfr>=IMpost;
++            tileSk(peakMask) = tileSk(peakMask) + IMfr(peakMask).^2;
++        end
++
++        if lastPeakFrame >= 2
++            obsCount = sum(~nansTile(:,:,2:lastPeakFrame), 3);
++        else
++            obsCount = zeros(size(tileSk),'single');
++        end
++        tileSk = tileSk ./ (300 + single(obsCount));
++
++        skIm(r0:r1,c0:c1) = tileSk(coreR,coreC);
++        clear dog tileSk nansTile mem
++    end
++end
++
++%% Legacy summary/peak-selection stage
+ summaryEroded = skIm;
+-
+-summaryEroded = summaryEroded ./ 10^(floor(log10(max(summaryEroded(:))))-1);
++maxVal = max(summaryEroded(:), [], 'omitnan');
++if isempty(maxVal) || ~isfinite(maxVal) || maxVal <= 0
++    P = [];
++    skIm(~valid) = nan;
++    return
++end
++summaryEroded = summaryEroded ./ 10^(floor(log10(maxVal))-1);
+ summaryEroded(~valid) = nan;
+ mfSummary = nanmedfilt2(summaryEroded, [5 5]);
+ summaryEroded = summaryEroded - mfSummary;
+-%valid = valid & (skIm ~= 0);
+ summaryEroded(~valid) = nan;
+-
+ skIm(~valid) = nan;
+ 
+-thetaf = getActImPeaks(summaryEroded,params.peakth,[],params.minPeakDistance);
+-
+-P.row = thetaf(:,2);
+-P.col = thetaf(:,3);
+-P.val = thetaf(:,1);
+-
+-peaksMask = zeros(size(summaryEroded));
+-peaksMask(sub2ind(size(peaksMask), round(P.row), round(P.col))) = 1;
+-
+-P.peakIM = summaryEroded .* peaksMask;
++thetaf = getActImPeaks(summaryEroded, params.peakth, [], params.minPeakDistance);
++if isempty(thetaf)
++    P = struct('row', [], 'col', [], 'val', [], 'peakIM', []);
++else
++    P.row = thetaf(:,2);
++    P.col = thetaf(:,3);
++    P.val = thetaf(:,1);
++    peaksMask = zeros(size(summaryEroded),'single');
++    peaksMask(sub2ind(size(peaksMask), round(P.row), round(P.col))) = 1;
++    P.peakIM = summaryEroded .* peaksMask;
++end
+ 
+ if doPlot
+-    figure, imagesc(summaryEroded); %hAx1 = gca;
+-    hold on, scatter(P.col, P.row, 20*P.val, 'r' ); %'margeredgecolor', 'r');
+-    figure, imagesc(summaryEroded); %hAx2 = gca;
+-end
+-
+-end
++    figure, imagesc(summaryEroded);
++    hold on
++    if ~isempty(P) && isfield(P,'col') && ~isempty(P.col)
++        scatter(P.col, P.row, 20*P.val, 'r');
++    end
++    figure, imagesc(summaryEroded);
++end
++end
++
++
++function raw = applyValidityMask(raw, valid2D)
++% Mask pixels that fail the whole-trial NaN-fraction criterion.
++if all(valid2D,'all')
++    return
++end
++bad = ~valid2D;
++for t = 1:size(raw,3)
++    frame = raw(:,:,t);
++    frame(bad) = nan;
++    raw(:,:,t) = frame;
++end
++end
++
++
++function [IMs, vSm] = varianceWeightedSmooth(raw, v, varSmoothWindow)
++% Match the legacy variance-weighted temporal smoothing exactly.
++IMs = smoothdata(raw./v, 3, 'movmean', varSmoothWindow, 'omitnan');
++vSm = 1 ./ smoothdata(1./v, 3, 'movmean', varSmoothWindow, 'omitnan');
++IMs = IMs .* vSm;
++end
++
++
++function [source, cleanupObj] = prepareVarianceSource(vIM, movieSize, tileSize, params)
++% Normalize numeric/empty/on-disk variance inputs to a common accessor.
++cleanupObj = [];
++
++if isempty(vIM)
++    source.type = 'ones';
++    source.size = movieSize;
++    return
++end
++
++if isnumeric(vIM)
++    if ~isequal(size(vIM), movieSize)
++        error('localizeSources_vIM:VarianceSizeMismatch', ...
++            'Numeric vIM size %s does not match movie size %s.', ...
++            mat2str(size(vIM)), mat2str(movieSize));
++    end
++    source.type = 'numeric';
++    source.data = vIM;
++    source.size = movieSize;
++    return
++end
++
++if ~isstruct(vIM) || ~isfield(vIM,'filename') || ~isfield(vIM,'dataset')
++    error('localizeSources_vIM:InvalidVarianceSource', ...
++        'vIM must be empty, numeric, or a struct with filename/dataset.');
++end
++
++info = h5info(vIM.filename, vIM.dataset);
++if ~isequal(double(info.Dataspace.Size(:))', double(movieSize(:))')
++    error('localizeSources_vIM:VarianceSizeMismatch', ...
++        'HDF5 variance size %s does not match movie size %s.', ...
++        mat2str(info.Dataspace.Size), mat2str(movieSize));
++end
++
++source.type = 'h5';
++source.filename = vIM.filename;
++source.dataset = vIM.dataset;
++source.size = movieSize;
++
++% Old optimized MultiRoiRegistration files used H x W x 1 chunks. Those are
++% excellent for frame-wise writes but pathological for spatial-tile reads:
++% every tile touches every full-frame chunk. Rechunk once to a local temp H5.
++chunk = [];
++if isfield(info, 'ChunkSize')
++    chunk = info.ChunkSize;
++end
++needsCache = isempty(chunk) || ...
++    (numel(chunk)>=2 && (chunk(1) > 2*tileSize || chunk(2) > 2*tileSize));
++
++if ~needsCache
++    return
++end
++
++if isfield(params,'localizationTempDir') && ~isempty(params.localizationTempDir)
++    tempDr = char(params.localizationTempDir);
++else
++    tempDr = tempdir;
++end
++if ~isfolder(tempDr)
++    mkdir(tempDr);
++end
++
++cacheFn = [tempname(tempDr) '_GIAnT_varFacDS.h5'];
++fprintf('Rechunking varFacDS to local temporary cache:\n  %s\n', cacheFn);
++
++H = movieSize(1); W = movieSize(2); T = movieSize(3);
++tChunk = min(8,T);
++h5create(cacheFn, '/varFacDS', movieSize, ...
++    'Datatype', 'single', ...
++    'ChunkSize', [min(tileSize,H), min(tileSize,W), tChunk]);
++
++for t0 = 1:tChunk:T
++    nt = min(tChunk, T-t0+1);
++    block = h5read(vIM.filename, vIM.dataset, [1 1 t0], [H W nt]);
++    h5write(cacheFn, '/varFacDS', single(block), [1 1 t0], [H W nt]);
++end
++
++source.filename = cacheFn;
++source.dataset = '/varFacDS';
++cleanupObj = onCleanup(@() deleteIfExists(cacheFn));
++end
++
++
++function v = readVarianceBlock(source, r0, r1, c0, c1, t0, t1)
++nr = r1-r0+1;
++nc = c1-c0+1;
++nt = t1-t0+1;
++
++switch source.type
++    case 'ones'
++        v = ones(nr,nc,nt,'single');
++    case 'numeric'
++        v = source.data(r0:r1,c0:c1,t0:t1);
++        if ~isa(v,'single')
++            v = single(v);
++        end
++    case 'h5'
++        v = h5read(source.filename, source.dataset, ...
++            [r0 c0 t0], [nr nc nt]);
++        if ~isa(v,'single')
++            v = single(v);
++        end
++    otherwise
++        error('localizeSources_vIM:UnknownVarianceSource', ...
++            'Unknown variance source type: %s', source.type);
++end
++end
++
++
++function deleteIfExists(fn)
++if isfile(fn)
++    try
++        delete(fn);
++    catch ME
++        warning('localizeSources_vIM:TempCleanupFailed', ...
++            'Could not delete temporary variance cache %s: %s', fn, ME.message);
++    end
++end
++end
+--- a/dependencies/gui/setParams.m
++++ b/dependencies/gui/setParams.m
+@@ -27,6 +27,8 @@
+         params.analyzeHz = 200;          tooltips.analyzeHz = 'frame rate used for analysis (SLAP2 only)';
+         params.nanThresh = 0.33;         tooltips.nanThresh = 'Max fraction of samples that can be NaN for including a pixel in analysis';
+         params.discardInitial_s = 0;     tooltips.discardInitial_s = 'time in seconds to remove from analysis at the start of each trial, to account for warmup';
++        params.localizationTileSize = 96; tooltips.localizationTileSize = 'RAM optimization only: spatial tile size for activity localization. Larger is usually faster but uses more RAM per worker.';
++        params.localizationTempDir = tempdir; tooltips.localizationTempDir = 'RAM optimization only: local temporary directory used to rechunk legacy varFacDS H5 datasets. Prefer a fast local SSD.';
+     case 'MultiRoiRegistration'
+         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
+         params.maxshift = 40; tooltips.maxshift = 'Maximum frame offset,in pixels';
+--- /dev/null
++++ b/dependencies/io/loadAlignmentDataLite.m
+@@ -0,0 +1,60 @@
++function s = loadAlignmentDataLite(filename)
++%LOADALIGNMENTDATALITE Read GIAnT alignment metadata without varFacDS.
++%
++%   s = loadAlignmentDataLite(filename)
++%
++% MultiRoiRegistration stores /slap2/varFacDS as an H x W x T array.
++% Loading an alignment H5 with loadStructFromH5 therefore materializes the
++% entire variance-factor movie even when callers only need small metadata
++% fields. This reader mirrors the H5 hierarchy while deliberately skipping
++% /slap2/varFacDS. Source localization can access that dataset lazily from
++% disk instead.
++
++if nargin < 1 || isempty(filename)
++    error('loadAlignmentDataLite:MissingFilename', ...
++        'An alignment H5 filename must be provided.');
++end
++if ~isfile(filename)
++    error('loadAlignmentDataLite:FileNotFound', ...
++        'Alignment H5 not found: %s', filename);
++end
++
++info = h5info(filename);
++s = readGroup(filename, info);
++end
++
++
++function s = readGroup(filename, grpInfo)
++s = struct();
++
++for ix = 1:numel(grpInfo.Datasets)
++    ds = grpInfo.Datasets(ix);
++    if strcmp(grpInfo.Name, '/')
++        path = ['/' ds.Name];
++    else
++        path = [grpInfo.Name '/' ds.Name];
++    end
++
++    % Critical RAM optimization: never materialize the variance movie here.
++    if strcmp(path, '/slap2/varFacDS')
++        continue
++    end
++
++    val = h5read(filename, path);
++    if isstring(val)
++        if isscalar(val)
++            val = char(val);
++        else
++            val = cellstr(val);
++        end
++    end
++    s.(ds.Name) = val;
++end
++
++for ix = 1:numel(grpInfo.Groups)
++    grp = grpInfo.Groups(ix);
++    parts = strsplit(grp.Name, '/');
++    grpName = parts{end};
++    s.(grpName) = readGroup(filename, grp);
++end
++end

@@ -27,6 +27,8 @@ switch fnName
         params.analyzeHz = 200;          tooltips.analyzeHz = 'frame rate used for analysis (SLAP2 only)';
         params.nanThresh = 0.33;         tooltips.nanThresh = 'Max fraction of samples that can be NaN for including a pixel in analysis';
         params.discardInitial_s = 0;     tooltips.discardInitial_s = 'time in seconds to remove from analysis at the start of each trial, to account for warmup';
+        params.localizationTileSize = 96; tooltips.localizationTileSize = 'RAM optimization only: spatial tile size for activity localization. Larger is usually faster but uses more RAM per worker.';
+        params.localizationTempDir = tempdir; tooltips.localizationTempDir = 'RAM optimization only: local temporary directory used to rechunk legacy varFacDS H5 datasets. Prefer a fast local SSD.';
     case 'MultiRoiRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshift = 40; tooltips.maxshift = 'Maximum frame offset,in pixels';
