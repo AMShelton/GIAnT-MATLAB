@@ -76,6 +76,17 @@ MultiRoiRegistration;   % or BandRegistration
 SILo;                   % isSLAP2 = true
 ```
 
+### Runtime and resource optimizations
+
+The SLAP2 processing path includes several optimizations for large multi-ROI recordings:
+
+* **`MultiRoiRegistration`** streams the large `/slap2/varFacDS` variance-factor movie directly to H5 in small batches instead of holding the full 3-D array in each parallel worker. Registration also searches only within `clipShift` of the previous motion estimate, preventing correlation cost from growing with accumulated XY drift.
+* **`SILo`** reads alignment metadata without loading `/slap2/varFacDS` into memory and performs activity localization in bounded spatial tiles. Variance data are read lazily from H5; when needed, they are temporarily rechunked for efficient spatial access.
+* **Parallel worker counts are RAM-aware.** SILo estimates a safe worker count from available memory and registered-movie size rather than assuming that every requested worker can run concurrently.
+* `localizationTileSize` (default `96` pixels) controls the SILo localization RAM/speed tradeoff. `localizationTempDir` controls where temporary rechunked H5 data are stored; a fast local SSD is recommended for best performance.
+
+These changes substantially reduce peak RAM use, especially when processing several trials in parallel, while retaining the existing output-file schema. The main tradeoff is increased temporary disk I/O during SILo localization. For motion-heavy recordings, choose `clipShift` large enough to accommodate true frame-to-frame motion and QC the resulting motion traces.
+
 ## Epoch and analysis trial
 
 For each experiment we break the data into **epochs** and **analysis trials**.
