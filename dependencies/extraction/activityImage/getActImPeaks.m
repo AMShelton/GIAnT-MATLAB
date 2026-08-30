@@ -1,4 +1,15 @@
 function thetaf = getActImPeaks(actIM, peakth, exclusionMask, minPeakDistance)
+%GETACTIMPEAKS Fit candidate activity-image peaks with integrated Gaussians.
+%
+% lsqcurvefit requires X0 and YDATA to be double precision. The RAM-optimized
+% SILo pathway intentionally keeps its 2-D summary activity image as single
+% precision, so normalize the compact 2-D fitting input to double here. This
+% restores the numerical type used by the pre-optimization SILo pathway while
+% leaving the large H x W x T movie calculations in single precision.
+if ~isa(actIM, 'double')
+    actIM = double(actIM);
+end
+
 % Defaults
 if nargin < 3 || isempty(exclusionMask)
     exclusionMask = false(size(actIM));
