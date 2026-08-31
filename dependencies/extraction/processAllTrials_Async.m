@@ -20,6 +20,14 @@ fprintf('High-resolution extraction thread workers: %d\n',targetWorkers);
 numDatasets = numel(fls);
 E = cell(numDatasets,1);
 
+% Keep one SLAP2 reader + parsed metadata object alive across the many
+% analysis pseudo-trials that usually point to the same continuous DAT file.
+% Clear it automatically when this path finishes or errors.
+if params.isSLAP2 && isfield(params,'reuseSlap2Reader') && params.reuseSlap2Reader
+    getCachedSlap2Resources('',true,'clear');
+    readerCacheCleanup = onCleanup(@() getCachedSlap2Resources('',true,'clear')); %#ok<NASGU>
+end
+
 for i = 1:numel(validTrials)
     nLoad = validTrials(i);
 
@@ -110,11 +118,17 @@ if params.isSLAP2
         end
         spTypeFlag = 1; % use raster superpixels
 
-        % Load the high-time-resolution data. getImages still reconstructs
-        % source raster frames, but interpolation below is restricted to
-        % pixels that contribute to a source, global trace, or user ROI.
-        S2data = slap2.Slap2DataFile(fullfile(dr,fn));
-        meta = loadMetadata(fullfile(dr,fn));
+        % Reuse the reader and parsed metadata across continuous-file
+        % pseudo-trials. This preserves getImages exactly but avoids repeated
+        % file opening / ParsePlan construction.
+        reuseReader = true;
+        if isfield(params,'reuseSlap2Reader')
+            reuseReader = logical(params.reuseSlap2Reader);
+        end
+        tReaderSetup = tic;
+        [S2data,meta,readerCacheHit] = getCachedSlap2Resources( ...
+            fullfile(dr,fn),reuseReader);
+        readerSetupSeconds = toc(tReaderSetup);
 
         linerateHz = 1/meta.linePeriod_s;
         dt = linerateHz/params.analyzeHz;
@@ -187,9 +201,24 @@ if params.isSLAP2
         if ~isfield(params,'highResBlockFrames') || isempty(params.highResBlockFrames)
             params.highResBlockFrames = 600;
         end
-        blocksize = max(1,round(params.highResBlockFrames));
-        nBlocks = ceil(nFrames/blocksize);
-        blockEdges = round(linspace(1,nFrames+1,nBlocks+1));
+        requestedBlocksize = max(1,round(params.highResBlockFrames));
+
+        % Larger blocks reduce getImages/MEX call overhead on local SSDs,
+        % but bound the full-raster temporary arrays by an explicit memory
+        % budget. The estimate intentionally assumes double precision and
+        % includes both Y and Fresh plus overhead, so it is conservative.
+        blocksize = requestedBlocksize;
+        if isfield(params,'highResBlockMemoryGB') && ...
+                ~isempty(params.highResBlockMemoryGB) && ...
+                isfinite(params.highResBlockMemoryGB)
+            rawRowsEstimate = max(double(alignDataSlap2.trimRows(:)));
+            rawColsEstimate = max(double(alignDataSlap2.trimCols(:)));
+            rawPxEstimate = max(1,rawRowsEstimate*rawColsEstimate);
+            bytesPerFrameEstimate = 8*rawPxEstimate*(numChannels+1)*1.35;
+            memoryBytes = double(params.highResBlockMemoryGB)*(1024^3);
+            maxFramesByMemory = max(1,floor(memoryBytes/bytesPerFrameEstimate));
+            blocksize = min(blocksize,maxFramesByMemory);
+        end
 
         nSourcePx = nnz(selPx2D);
         IMsel = nan(nSourcePx,numChannels,nFrames);
@@ -201,10 +230,17 @@ if params.isSLAP2
         rawReadSeconds = 0;
         selectedInterpSeconds = 0;
 
-        % Forward block order improves local-file read locality and avoids
-        % the previous unnecessary end-to-start traversal.
-        for bix = 1:nBlocks
-            fIxs = blockEdges(bix):(blockEdges(bix+1)-1);
+        % Forward block order improves local-file read locality. The
+        % selected-pixel interpolation is vectorized over small frame batches
+        % but remains mathematically identical to interpFramesSelected.
+        interpBatchFrames = 64;
+        if isfield(params,'selectedInterpBatchFrames') && ...
+                ~isempty(params.selectedInterpBatchFrames)
+            interpBatchFrames = max(1,round(params.selectedInterpBatchFrames));
+        end
+
+        for blockStart = 1:blocksize:nFrames
+            fIxs = blockStart:min(nFrames,blockStart+blocksize-1);
             tRaw = tic;
             [Y,Fresh] = S2data.getImages(orderedChannels,frameLines(fIxs), ...
                 ceil(dt),1,spTypeFlag);
@@ -213,20 +249,12 @@ if params.isSLAP2
             Fresh = Fresh(alignDataSlap2.trimRows,alignDataSlap2.trimCols,:);
             nFramesInBlock = size(Y,4);
 
-            Yneeded = nan(nNeeded,numChannels,nFramesInBlock,'like',Y);
-            FinvNeeded = nan(nNeeded,nFramesInBlock,'like',Fresh);
-
-            % Deliberately use the client thread here. NMF futures from the
-            % previous trial continue to occupy the bounded thread pool while
-            % this trial is being read and sparsely interpolated.
+            % Deliberately run interpolation on the client while NMF futures
+            % from the previous trial occupy the bounded thread pool.
             tInterp = tic;
-            for frIx = 1:nFramesInBlock
-                [Yneeded(:,:,frIx),FinvNeeded(:,frIx)] = ...
-                    interpFramesSelected(Y(:,:,:,frIx), ...
-                    viewC+motionC(fIxs(frIx)), ...
-                    viewR+motionR(fIxs(frIx)), ...
-                    Fresh(:,:,frIx),neededLin);
-            end
+            [Yneeded,FinvNeeded] = interpFramesSelectedBatch( ...
+                Y,viewC,viewR,Fresh,neededLin, ...
+                motionC(fIxs),motionR(fIxs),interpBatchFrames);
             selectedInterpSeconds = selectedInterpSeconds + toc(tInterp);
 
             IMsel(:,:,fIxs) = Yneeded(sourceNeeded,:,:);
@@ -267,9 +295,11 @@ if params.isSLAP2
         end
 
         fprintf(['  high-res blocks: getImages %.1f s; selected interpolation ' ...
-            '%.1f s; needed pixels %d/%d (%.1f%%)\n'], ...
+            '%.1f s; needed pixels %d/%d (%.1f%%); block %d frames; ' ...
+            'reader setup %.2f s (%s)\n'], ...
             rawReadSeconds,selectedInterpSeconds,nNeeded,nOutPx, ...
-            100*nNeeded/max(1,nOutPx));
+            100*nNeeded/max(1,nOutPx),blocksize,readerSetupSeconds, ...
+            ternary(readerCacheHit,'cache hit','new reader'));
 
         % Existing user-ROI SVD denoising.
         for rix = 1:numel(roiData)
@@ -398,4 +428,13 @@ Finvsel(squeeze(nans(:,1,:))) = 1000*mean(Finvsel,'all', 'omitmissing');
 CD.Yobs = IMsel;
 CD.Finv = Finvsel;
 CD.discardFrames = discard;
+end
+
+function out = ternary(condition,trueValue,falseValue)
+%TERNARY Small local helper for compact diagnostic messages.
+if condition
+    out = trueValue;
+else
+    out = falseValue;
+end
 end

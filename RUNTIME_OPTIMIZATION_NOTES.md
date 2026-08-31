@@ -43,3 +43,18 @@ Run the same session locally and retain the console timing output. Compare with 
 6. total runtime and printed `getImages` vs selected-interpolation timing
 
 If `getImages` remains the dominant high-resolution cost after this pass, the next optimization target is the Slap2DataReader internals so raw acquisition samples/superpixels can be selected before full raster reconstruction.
+
+
+## v4: reader reuse + batched selected interpolation
+
+This revision keeps the SLAP2 scientific reconstruction unchanged while
+reducing MATLAB-side overhead:
+
+1. Reuses one `slap2.Slap2DataFile` and metadata object across analysis
+   pseudo-trials from the same continuous DAT file.
+2. Vectorizes selected-pixel bilinear interpolation across bounded frame
+   batches and includes a regression test against the frame-wise reference.
+3. Allows larger `getImages` blocks on local SSDs with a conservative
+   RAM-based automatic cap.
+4. Reduces the recommended source-extraction thread count when I/O is
+   overlapped with NMF, leaving more CPU/cache bandwidth for the reader.

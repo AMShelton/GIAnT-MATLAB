@@ -30,7 +30,10 @@ switch fnName
         params.localizationTileSize = 96; tooltips.localizationTileSize = 'RAM optimization only: spatial tile size for activity localization. Larger is usually faster but uses more RAM per worker.';
         params.localizationTempDir = tempdir; tooltips.localizationTempDir = 'RAM optimization only: local temporary directory used to rechunk legacy varFacDS H5 datasets. Prefer a fast local SSD.';
         params.extractionWorkers = 8; tooltips.extractionWorkers = 'Performance only: number of thread workers used for high-resolution source/NMF subproblems.';
-        params.highResBlockFrames = 600; tooltips.highResBlockFrames = 'Performance only: number of 200-Hz frames reconstructed per SLAP2 high-resolution input block.';
+        params.highResBlockFrames = 600; tooltips.highResBlockFrames = 'Performance only: requested number of 200-Hz frames reconstructed per SLAP2 high-resolution input block.';
+        params.highResBlockMemoryGB = 12; tooltips.highResBlockMemoryGB = 'Performance only: conservative RAM budget for one full-raster getImages block; highResBlockFrames is capped to fit.';
+        params.selectedInterpBatchFrames = 64; tooltips.selectedInterpBatchFrames = 'Performance only: number of frames vectorized together during sparse motion interpolation.';
+        params.reuseSlap2Reader = true; tooltips.reuseSlap2Reader = 'Performance only: reuse one Slap2DataFile/metadata object across pseudo-trials from the same DAT file.';
         params.savePerTrialSummary = true; tooltips.savePerTrialSummary = 'Save per_trial_summary.h5. Disable to avoid the very large full-FOV per-trial footprint file.';
     case 'MultiRoiRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
@@ -183,6 +186,25 @@ end
 validateattributes(params.highResBlockFrames, {'numeric'}, ...
     {'scalar','real','finite','positive'}, mfilename, 'highResBlockFrames');
 params.highResBlockFrames = max(1, round(double(params.highResBlockFrames)));
+
+if ~isfield(params, 'highResBlockMemoryGB') || isempty(params.highResBlockMemoryGB)
+    params.highResBlockMemoryGB = 12;
+end
+validateattributes(params.highResBlockMemoryGB, {'numeric'}, ...
+    {'scalar','real','finite','positive'}, mfilename, 'highResBlockMemoryGB');
+params.highResBlockMemoryGB = double(params.highResBlockMemoryGB);
+
+if ~isfield(params, 'selectedInterpBatchFrames') || isempty(params.selectedInterpBatchFrames)
+    params.selectedInterpBatchFrames = 64;
+end
+validateattributes(params.selectedInterpBatchFrames, {'numeric'}, ...
+    {'scalar','real','finite','positive'}, mfilename, 'selectedInterpBatchFrames');
+params.selectedInterpBatchFrames = max(1,round(double(params.selectedInterpBatchFrames)));
+
+if ~isfield(params, 'reuseSlap2Reader') || isempty(params.reuseSlap2Reader)
+    params.reuseSlap2Reader = true;
+end
+params.reuseSlap2Reader = logical(params.reuseSlap2Reader);
 
 if ~isfield(params, 'savePerTrialSummary') || isempty(params.savePerTrialSummary)
     params.savePerTrialSummary = true;

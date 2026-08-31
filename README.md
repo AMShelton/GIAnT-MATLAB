@@ -471,3 +471,24 @@ If you use GIAnT, please cite:
 
 Machine-readable citation metadata is in [`CITATION.cff`](CITATION.cff).
 
+
+### Additional SLAP2 high-resolution runtime optimizations
+
+The high-resolution SILo path also avoids repeated work when a continuous
+SLAP2 acquisition is divided into many analysis pseudo-trials:
+
+* `Slap2DataFile` and parsed metadata are reused across pseudo-trials that
+  reference the same `.dat` file (`reuseSlap2Reader=true`).
+* Sparse motion interpolation is vectorized across small frame batches
+  (`selectedInterpBatchFrames`) while retaining the same four-neighbor,
+  freshness-weighted interpolation equation.
+* `highResBlockFrames` may be increased to amortize `getImages` overhead on
+  local SSDs. `highResBlockMemoryGB` applies a conservative automatic cap so
+  full-raster temporary arrays do not grow without bound.
+* The optimized Slap2DataReader cache overlay is optional. GIAnT contains a
+  backwards-compatible cache fallback and still works with the upstream
+  reader unchanged.
+
+These settings affect scheduling/allocation only; they do not change
+`analyzeHz`, source kinetics, source detection thresholds, NMF iterations,
+or the values requested from `Slap2DataFile.getImages`.
