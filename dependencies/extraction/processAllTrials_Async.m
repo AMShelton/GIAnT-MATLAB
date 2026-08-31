@@ -1,36 +1,63 @@
 function E = processAllTrials_Async(dr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params)
-curPool = gcp('nocreate');
-if isempty(curPool) || ~strcmpi(class(curPool), 'parallel.ThreadPool') %  ~strcmpi(class(curPool), 'parallel.ProcessPool') %
-    delete(curPool);
-    parpool('Threads'); %use all available Threads
+%PROCESSALLTRIALS_ASYNC Load high-resolution trials while source extraction
+% runs concurrently on a bounded thread pool.
+
+if ~isfield(params,'extractionWorkers') || isempty(params.extractionWorkers)
+    params.extractionWorkers = min(8,params.nWorkers);
 end
+targetWorkers = max(1,round(params.extractionWorkers));
+
+curPool = gcp('nocreate');
+needsPool = isempty(curPool) || ...
+    ~strcmpi(class(curPool),'parallel.ThreadPool') || ...
+    curPool.NumWorkers ~= targetWorkers;
+if needsPool
+    delete(curPool);
+    parpool('Threads',targetWorkers);
+end
+fprintf('High-resolution extraction thread workers: %d\n',targetWorkers);
+
 numDatasets = numel(fls);
-E = cell(numDatasets,1); 
+E = cell(numDatasets,1);
+
 for i = 1:numel(validTrials)
     nLoad = validTrials(i);
-    CD = loadTrial(dr, fns{nLoad},fls(nLoad),els(nLoad),selPix,discardFrames{nLoad}, alignData{nLoad}, meanAligned(:,:,:,nLoad), motOutput(:,nLoad), roiData, params);
-    E{nLoad}.ROIs = CD.ROIs; E{nLoad}.global = CD.global;
+
+    tLoad = tic;
+    CD = loadTrial(dr, fns{nLoad},fls(nLoad),els(nLoad),selPix, ...
+        discardFrames{nLoad},alignData{nLoad},meanAligned(:,:,:,nLoad), ...
+        motOutput(:,nLoad),roiData,params);
+    fprintf('Loaded/interpolated trial %d in %.1f s\n',nLoad,toc(tLoad));
+
+    E{nLoad}.ROIs = CD.ROIs;
+    E{nLoad}.global = CD.global;
     E{nLoad}.discardFrames = CD.discardFrames;
     E{nLoad}.frameLines = CD.frameLines;
-    if i>1 %we process the previous trial after loading the next, to keep CPU usage up during loading
-        [E{validTrials(i-1)}, B] = processResult(resultsFuture, E{validTrials(i-1)},params);
-        if isempty(E{nLoad})
-            disp(['Error processing trial: ' int2str(nLoad) '\n Continuing...'])
-        end
+
+    if i>1
+        % Wait for the previous extraction only after loading the next trial.
+        % With selected-pixel interpolation the client can perform I/O while
+        % thread workers remain busy in the NMF solver.
+        prevTrial = validTrials(i-1);
+        tFetch = tic;
+        E{prevTrial} = processResult(resultsFuture,E{prevTrial},params);
+        fprintf('Finalized source extraction for trial %d in %.1f s wait time\n', ...
+            prevTrial,toc(tFetch));
     end
-    disp(['Processing trial ' int2str(validTrials(i)) ' from ' fns{nLoad}])
-    %Y = squeeze(CD.Yobs(:,1,:));
-    Y = permute(CD.Yobs, [1 3 2]);
-    resultsFuture = extractTrial(Y,CD.Finv, sources, any(selPix,3), params, alignData{nLoad});
-    clear CD;
+
+    fprintf('Processing trial %d from %s\n',nLoad,fns{nLoad});
+    Y = permute(CD.Yobs,[1 3 2]);
+    resultsFuture = extractTrial(Y,CD.Finv,sources,any(selPix,3),params,alignData{nLoad});
+    clear CD Y;
 end
 
-[E{nLoad}, B] = processResult(resultsFuture,E{nLoad},params);
-if isempty(E{nLoad})
-    disp(['Error processing trial: ' int2str(nLoad) '\n Continuing...'])
+lastTrial = validTrials(end);
+tFetch = tic;
+E{lastTrial} = processResult(resultsFuture,E{lastTrial},params);
+fprintf('Finalized source extraction for trial %d in %.1f s wait time\n', ...
+    lastTrial,toc(tFetch));
 end
 
-end
 % ---------------- Helper Functions ----------------
 function plotE(E, Y,B,selPix) %debugging helper only
     %generate activity movie, baseline movie, and residual
@@ -45,12 +72,11 @@ function plotE(E, Y,B,selPix) %debugging helper only
     render(repmat(sel2D,1,1,500)) = B(:,501:1000);
 end
 
-function [E, B] = processResult(resultsFuture, E, params)
+function E = processResult(resultsFuture,E,params)
 try
-    [H,B,S,LS,F0,SNR] = fetchOutputs(resultsFuture);
+    [H,S,LS,F0,SNR] = fetchOutputs(resultsFuture);
     discard = E.discardFrames;
     E.footprints = H;
-    %E.baseline = single(B); %This is a huge variable and currently unused.
     E.dF.events = S;
     E.dF.events(:,discard) = nan;
 
@@ -66,8 +92,8 @@ try
     E.F0 = F0;
     E.SNR = SNR;
 catch ME
-    fprintf(2, 'processResult ERROR: %s\n', ME.message);
-    B = [];
+    fprintf(2,'processResult ERROR: %s\n',ME.message);
+    rethrow(ME);
 end
 end
 
@@ -81,95 +107,181 @@ orderedChannels = [params.activityChannel:numChannels, 1:params.activityChannel-
 if params.isSLAP2
         if params.includeIntegrationROIs
             warning('includeIntegration not implemented, using raster only!')
-            spTypeFlag = 1; %use only raster superpixels
-        else
-            spTypeFlag = 1; %use only raster superpixels
         end
+        spTypeFlag = 1; % use raster superpixels
 
-        %load the high time resolution data
-        S2data = slap2.Slap2DataFile([dr filesep fn]);
-        meta = loadMetadata([dr filesep fn]);
-        
+        % Load the high-time-resolution data. getImages still reconstructs
+        % source raster frames, but interpolation below is restricted to
+        % pixels that contribute to a source, global trace, or user ROI.
+        S2data = slap2.Slap2DataFile(fullfile(dr,fn));
+        meta = loadMetadata(fullfile(dr,fn));
+
         linerateHz = 1/meta.linePeriod_s;
         dt = linerateHz/params.analyzeHz;
         frameLines = ceil(startLine:dt:endLine);
-        nFrames= length(frameLines);
+        nFrames = length(frameLines);
         CD.frameLines = frameLines;
-        selPx2D = any(selPix,3);
 
-        %upsample motion
-        motionC = interp1(alignData.DSframes, alignData.motionDSc, frameLines, 'pchip', 'extrap') + motOutput(2);
-        motionR = interp1(alignData.DSframes, alignData.motionDSr, frameLines, 'pchip', 'extrap') + motOutput(1);
+        % Upsample motion exactly as before.
+        motionC = interp1(alignData.DSframes,alignData.motionDSc, ...
+            frameLines,'pchip','extrap') + motOutput(2);
+        motionR = interp1(alignData.DSframes,alignData.motionDSr, ...
+            frameLines,'pchip','extrap') + motOutput(1);
         CD.motionC = motionC;
         CD.motionR = motionR;
 
         alignDataSlap2 = alignData.slap2;
         viewC = alignDataSlap2.viewC(1,:);
         viewR = alignDataSlap2.viewR(:,1);
+        outRows = numel(viewR);
+        outCols = numel(viewC);
 
-        selPx2D = selPx2D(1:size(alignDataSlap2.viewC,1), 1:size(alignDataSlap2.viewC,2));
-        nPx = numel(selPx2D);
-        meanIM = meanIM(1:size(alignDataSlap2.viewC,1), 1:size(alignDataSlap2.viewC,2),:);
-        labeled = medfilt2(meanIM(:,:,params.activityChannel), [3 3]);
-        labeled = ~isnan(meanIM(:,:,params.activityChannel)) & labeled>3*prctile(labeled(~isnan(labeled)), 25); %labeled pixels
-        
-        meanPx = reshape(meanIM, numel(labeled), numChannels);
-        mLabeled = meanPx(labeled,:);
+        selPx2D = any(selPix,3);
+        selPx2D = selPx2D(1:outRows,1:outCols);
+        meanIM = meanIM(1:outRows,1:outCols,:);
 
-        blocksize = 600; %number of frames to load at a time; 100 frames ~= 1GB RAM usage
-        nBlocks = ceil(nFrames./blocksize);
-        blockEdges = round(linspace(1, nFrames+1, nBlocks+1));
-
-        sumF = sum(meanPx,1,'omitmissing');
-        IMsel = nan(sum(selPx2D(:)),numChannels, nFrames);
-        Finvsel = nan(sum(selPx2D(:)),nFrames);
-        for bix = nBlocks:-1:1
-            fIxs  = blockEdges(bix):(blockEdges(bix+1)-1);
-            [Y, Fresh] = S2data.getImages(orderedChannels,frameLines(fIxs),ceil(dt),1,1);
-            Y = Y(alignDataSlap2.trimRows, alignDataSlap2.trimCols,:,:);
-            Fresh = Fresh(alignDataSlap2.trimRows, alignDataSlap2.trimCols,:);
-            nFramesInBlock = size(Y,4);
-
-            Y2 = nan(length(viewR),length(viewC),numChannels, nFramesInBlock);
-            Finv = nan(length(viewR),length(viewC),nFramesInBlock);
-            parfor frIx = 1:nFramesInBlock
-                [Y2(:,:,:,frIx), Finv(:,:,frIx)] = interpFrames(Y(:,:,:,frIx),viewC+motionC(fIxs(frIx)), viewR+motionR(fIxs(frIx)), Fresh(:,:,frIx));
-            end
-
-            Y2 = reshape(Y2, nPx, numChannels, nFramesInBlock);
-            Finv= reshape(Finv, nPx, nFramesInBlock);
-
-            IMsel(:, :, fIxs) = Y2(selPx2D,:,:);
-            Finvsel(:,fIxs) = Finv(selPx2D,:);
-
-            %compute global ROI activity
-            yLabeled = double(Y2(labeled(:),:,:)); nans= isnan(yLabeled(:,1,:));
-            M = repmat(mLabeled,1,1,nFramesInBlock); M(nans) = nan;
-            CD.global.F(orderedChannels,fIxs) = (sum(yLabeled,1, 'omitmissing')./sum(M,1, 'omitmissing')).*sumF;
-
-            %compute user ROI activity
-            for rix = length(roiData):-1:1
-                mask = roiData{rix}.mask;
-                tmp1 = Y2(mask(:),:,:);  %the data over the ROI pixels
-                Fpx{rix}(:,:,fIxs) = tmp1;
-                tmp2 = repmat(meanPx(mask(:),:), 1,1,numel(fIxs)); %the mean image over the ROI pixels
-                nans= isnan(tmp1) | isnan(tmp2);
-                tmp1(nans) = 0;
-                tmp2(nans) = 0;
-                CD.ROIs.F(rix,:,fIxs) = (sum(tmp1,1)./sum(tmp2,1)).*sum(meanPx(mask(:),:),1,'omitmissing'); %dFF over the valid pixels, times the mean
-            end
+        % Pixels used by the global trace.
+        labeledScore = medfilt2(meanIM(:,:,params.activityChannel),[3 3]);
+        validScore = labeledScore(~isnan(labeledScore));
+        if isempty(validScore)
+            labeled = false(outRows,outCols);
+        else
+            labeled = ~isnan(meanIM(:,:,params.activityChannel)) & ...
+                labeledScore > 3*prctile(validScore,25);
         end
 
-        %perform SVD on user ROIs to denoise
-        CD.ROIs.Fsvd = nan(length(roiData), numChannels, nFrames);
-        for rix = 1:length(roiData)
+        meanPx = reshape(meanIM,outRows*outCols,numChannels);
+        meanPxOrdered = meanPx(:,orderedChannels);
+        mLabeled = meanPxOrdered(labeled,:);
+        sumF = sum(meanPxOrdered,1,'omitmissing');
+
+        % Build the union of every output pixel required downstream. The old
+        % pathway motion-corrected the complete FOV at 200 Hz and discarded
+        % most pixels immediately afterwards.
+        neededPx2D = selPx2D | labeled;
+        roiMasks = cell(1,numel(roiData));
+        for rix = 1:numel(roiData)
+            mask = logical(roiData{rix}.mask);
+            maskRows = min(size(mask,1),outRows);
+            maskCols = min(size(mask,2),outCols);
+            mask = mask(1:maskRows,1:maskCols);
+            tmpMask = false(outRows,outCols);
+            tmpMask(1:size(mask,1),1:size(mask,2)) = mask;
+            roiMasks{rix} = tmpMask;
+            neededPx2D = neededPx2D | tmpMask;
+        end
+
+        neededLin = find(neededPx2D);
+        nNeeded = numel(neededLin);
+        nOutPx = outRows*outCols;
+        neededMap = zeros(nOutPx,1,'uint32');
+        neededMap(neededLin) = uint32(1:nNeeded);
+
+        sourceNeeded = double(neededMap(find(selPx2D)));
+        globalNeeded = double(neededMap(find(labeled)));
+        roiNeeded = cell(1,numel(roiData));
+        for rix = 1:numel(roiData)
+            roiNeeded{rix} = double(neededMap(find(roiMasks{rix})));
+        end
+
+        if ~isfield(params,'highResBlockFrames') || isempty(params.highResBlockFrames)
+            params.highResBlockFrames = 600;
+        end
+        blocksize = max(1,round(params.highResBlockFrames));
+        nBlocks = ceil(nFrames/blocksize);
+        blockEdges = round(linspace(1,nFrames+1,nBlocks+1));
+
+        nSourcePx = nnz(selPx2D);
+        IMsel = nan(nSourcePx,numChannels,nFrames);
+        Finvsel = nan(nSourcePx,nFrames);
+        CD.global.F = nan(numChannels,nFrames);
+        CD.ROIs.F = nan(numel(roiData),numChannels,nFrames);
+        CD.ROIs.Fsvd = nan(numel(roiData),numChannels,nFrames);
+        Fpx = cell(1,numel(roiData));
+        rawReadSeconds = 0;
+        selectedInterpSeconds = 0;
+
+        % Forward block order improves local-file read locality and avoids
+        % the previous unnecessary end-to-start traversal.
+        for bix = 1:nBlocks
+            fIxs = blockEdges(bix):(blockEdges(bix+1)-1);
+            tRaw = tic;
+            [Y,Fresh] = S2data.getImages(orderedChannels,frameLines(fIxs), ...
+                ceil(dt),1,spTypeFlag);
+            rawReadSeconds = rawReadSeconds + toc(tRaw);
+            Y = Y(alignDataSlap2.trimRows,alignDataSlap2.trimCols,:,:);
+            Fresh = Fresh(alignDataSlap2.trimRows,alignDataSlap2.trimCols,:);
+            nFramesInBlock = size(Y,4);
+
+            Yneeded = nan(nNeeded,numChannels,nFramesInBlock,'like',Y);
+            FinvNeeded = nan(nNeeded,nFramesInBlock,'like',Fresh);
+
+            % Deliberately use the client thread here. NMF futures from the
+            % previous trial continue to occupy the bounded thread pool while
+            % this trial is being read and sparsely interpolated.
+            tInterp = tic;
+            for frIx = 1:nFramesInBlock
+                [Yneeded(:,:,frIx),FinvNeeded(:,frIx)] = ...
+                    interpFramesSelected(Y(:,:,:,frIx), ...
+                    viewC+motionC(fIxs(frIx)), ...
+                    viewR+motionR(fIxs(frIx)), ...
+                    Fresh(:,:,frIx),neededLin);
+            end
+            selectedInterpSeconds = selectedInterpSeconds + toc(tInterp);
+
+            IMsel(:,:,fIxs) = Yneeded(sourceNeeded,:,:);
+            Finvsel(:,fIxs) = FinvNeeded(sourceNeeded,:);
+
+            % Global trace using the same mean-image normalization.
+            if ~isempty(globalNeeded)
+                yLabeled = double(Yneeded(globalNeeded,:,:));
+                validGlobal = ~isnan(yLabeled(:,1,:));
+                meanGlobal = reshape(mLabeled,[size(mLabeled,1),numChannels,1]);
+                denom = sum(meanGlobal .* validGlobal,1,'omitmissing');
+                numer = sum(yLabeled,1,'omitmissing');
+                g = reshape(numer,[numChannels,nFramesInBlock]) ./ ...
+                    reshape(denom,[numChannels,nFramesInBlock]);
+                g = g .* sumF(:);
+                CD.global.F(orderedChannels,fIxs) = g;
+            end
+
+            % User ROI traces. Keep per-pixel samples only when requested,
+            % because they are later used for the existing SVD denoising.
+            for rix = 1:numel(roiData)
+                idx = roiNeeded{rix};
+                tmp1 = Yneeded(idx,:,:);
+                Fpx{rix}(:,:,fIxs) = tmp1;
+
+                roiMean = meanPxOrdered(roiMasks{rix}(:),:);
+                tmp2 = repmat(roiMean,1,1,nFramesInBlock);
+                nans = isnan(tmp1) | isnan(tmp2);
+                tmp1(nans) = 0;
+                tmp2(nans) = 0;
+                numer = reshape(sum(tmp1,1),[numChannels,nFramesInBlock]);
+                denom = reshape(sum(tmp2,1),[numChannels,nFramesInBlock]);
+                roiF = numer./denom .* sum(roiMean,1,'omitmissing')';
+                CD.ROIs.F(rix,orderedChannels,fIxs) = reshape(roiF,[1 numChannels nFramesInBlock]);
+            end
+
+            clear Y Fresh Yneeded FinvNeeded
+        end
+
+        fprintf(['  high-res blocks: getImages %.1f s; selected interpolation ' ...
+            '%.1f s; needed pixels %d/%d (%.1f%%)\n'], ...
+            rawReadSeconds,selectedInterpSeconds,nNeeded,nOutPx, ...
+            100*nNeeded/max(1,nOutPx));
+
+        % Existing user-ROI SVD denoising.
+        for rix = 1:numel(roiData)
             if ~isempty(Fpx{rix}) && ~all(isnan(Fpx{rix}(:)))
                 for cix = 1:numel(orderedChannels)
                     Dtmp = squeeze(double(Fpx{rix}(:,cix,:)));
-                    [UU,SS,VV,bg] = nansvd(Dtmp,3, 10, params.nanThresh);
-                    roiLikeness = (abs(mean(UU,1, 'omitnan'))./sqrt(mean(UU.^2,1, 'omitnan')))*SS;
+                    [UU,SS,VV,bg] = nansvd(Dtmp,3,10,params.nanThresh);
+                    roiLikeness = ...
+                        (abs(mean(UU,1,'omitnan'))./sqrt(mean(UU.^2,1,'omitnan')))*SS;
                     [~,selPC] = max(roiLikeness);
-                    CD.ROIs.Fsvd(rix,cix,:) = mean(bg+(UU(:,selPC)*SS(selPC,selPC)*VV(:,selPC)'),1, 'omitnan');
+                    CD.ROIs.Fsvd(rix,orderedChannels(cix),:) = ...
+                        mean(bg+(UU(:,selPC)*SS(selPC,selPC)*VV(:,selPC)'),1,'omitnan');
                 end
             end
         end

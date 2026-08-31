@@ -339,12 +339,21 @@ staticSave.slap2.trimRows = trimRows;
 staticSave.slap2.trimCols = trimCols;
 saveStructToH5(staticSave, partialAdataPath);
 
+% Use spatially tiled chunks so SILo can read localization tiles directly.
+% The old H x W x 1 layout was optimal for frame writes but forced SILo to
+% copy/rechunk the entire multi-GB dataset before localization.
+if ~isfield(aData,'varFacChunkXY') || isempty(aData.varFacChunkXY)
+    aData.varFacChunkXY = 128;
+end
+varFacBufferFrames = min(8,nDSframes);
+varChunkXY = max(16,round(aData.varFacChunkXY));
 h5create(partialAdataPath, '/slap2/varFacDS', ...
     [szOut(1), szOut(2), nDSframes], ...
     'Datatype', 'single', ...
-    'ChunkSize', [szOut(1), szOut(2), 1]);
+    'ChunkSize', [min(varChunkXY,szOut(1)), ...
+                  min(varChunkXY,szOut(2)), ...
+                  varFacBufferFrames]);
 
-varFacBufferFrames = min(8, nDSframes);
 varFacBuffer = nan(szOut(1), szOut(2), varFacBufferFrames, 'single');
 varFacBufferCount = 0;
 varFacBufferStart = 1;

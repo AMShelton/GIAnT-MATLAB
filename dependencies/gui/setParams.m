@@ -29,6 +29,9 @@ switch fnName
         params.discardInitial_s = 0;     tooltips.discardInitial_s = 'time in seconds to remove from analysis at the start of each trial, to account for warmup';
         params.localizationTileSize = 96; tooltips.localizationTileSize = 'RAM optimization only: spatial tile size for activity localization. Larger is usually faster but uses more RAM per worker.';
         params.localizationTempDir = tempdir; tooltips.localizationTempDir = 'RAM optimization only: local temporary directory used to rechunk legacy varFacDS H5 datasets. Prefer a fast local SSD.';
+        params.extractionWorkers = 8; tooltips.extractionWorkers = 'Performance only: number of thread workers used for high-resolution source/NMF subproblems.';
+        params.highResBlockFrames = 600; tooltips.highResBlockFrames = 'Performance only: number of 200-Hz frames reconstructed per SLAP2 high-resolution input block.';
+        params.savePerTrialSummary = true; tooltips.savePerTrialSummary = 'Save per_trial_summary.h5. Disable to avoid the very large full-FOV per-trial footprint file.';
     case 'MultiRoiRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshift = 40; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -39,6 +42,7 @@ switch fnName
         params.refStackTemplate = false; tooltips.refStackTemplate = 'Use ref stack as template';
         params.isReVolt = false; tooltips.isReVolt = 'select true for recordings with simultaneous red 1P imaging';
         params.includeIntegrationROIs = false; tooltips.includeIntegrationROIs = 'Use integration ROIs for alignment and TIFF generation?';
+        params.varFacChunkXY = 128; tooltips.varFacChunkXY = 'Performance only: spatial HDF5 chunk size for varFacDS. 128 avoids a SILo rechunk pass.';
     case 'BandRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshiftXY = 25; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -65,19 +69,24 @@ switch fnName
         error('Unknown function name passed to setParams.m')
 end
 
-if nargin>1 %if the user specified parameters, add in the user parameters, use defaults for remaining, NO GUI
+if nargin>1 %if the user specified parameters, add user values and use defaults for remaining fields
     paramsIn = coerceLegacyParamNames(paramsIn);
     for field = fieldnames(paramsIn)'
-         params.(field{1}) = paramsIn.(field{1});
+        params.(field{1}) = paramsIn.(field{1});
     end
+    params = normalizeParams(fnName, params);
     if nargin<3 || ~forceGUI
         return
     end
+else
+    params = normalizeParams(fnName, params);
 end
 
-%get parameters from user
+% Get parameters from user. optionsGUI merges legacy saved presets into the
+% current parameter schema, so fields added in newer versions keep defaults.
 paramsIn = optionsGUI(params, tooltips, fnName);
 params = coerceLegacyParamNames(paramsIn);
+params = normalizeParams(fnName, params);
 
 end
 
@@ -106,3 +115,78 @@ if isfield(params, 'operator')
     params = rmfield(params, 'operator');
 end
 end
+
+function params = normalizeParams(fnName, params)
+%NORMALIZEPARAMS Normalize/validate non-scientific runtime parameters.
+
+if strcmp(fnName, 'MultiRoiRegistration')
+    if ~isfield(params,'varFacChunkXY') || isempty(params.varFacChunkXY)
+        params.varFacChunkXY = 128;
+    end
+    validateattributes(params.varFacChunkXY, {'numeric'}, ...
+        {'scalar','real','finite','positive'}, mfilename, 'varFacChunkXY');
+    params.varFacChunkXY = max(16,round(double(params.varFacChunkXY)));
+    return
+end
+
+if ~strcmp(fnName, 'SILo')
+    return
+end
+
+% Performance-only RAM optimization settings. These defaults make old
+% parameter structures/presets forward-compatible with optimized SILo.
+if ~isfield(params, 'localizationTileSize') || isempty(params.localizationTileSize)
+    params.localizationTileSize = 96;
+end
+validateattributes(params.localizationTileSize, {'numeric'}, ...
+    {'scalar','real','finite','positive'}, mfilename, 'localizationTileSize');
+params.localizationTileSize = round(double(params.localizationTileSize));
+if params.localizationTileSize < 16
+    error('setParams:InvalidLocalizationTileSize', ...
+        'localizationTileSize must be at least 16 pixels.');
+end
+
+if ~isfield(params, 'localizationTempDir') || isempty(params.localizationTempDir)
+    params.localizationTempDir = tempdir;
+end
+if isstring(params.localizationTempDir)
+    if ~isscalar(params.localizationTempDir)
+        error('setParams:InvalidLocalizationTempDir', ...
+            'localizationTempDir must be a scalar string or character vector.');
+    end
+    params.localizationTempDir = char(params.localizationTempDir);
+end
+if ~ischar(params.localizationTempDir)
+    error('setParams:InvalidLocalizationTempDir', ...
+        'localizationTempDir must be a character vector or scalar string.');
+end
+
+if ~isfolder(params.localizationTempDir)
+    [ok, msg] = mkdir(params.localizationTempDir);
+    if ~ok
+        error('setParams:LocalizationTempDirUnavailable', ...
+            'Could not create localizationTempDir "%s": %s', ...
+            params.localizationTempDir, msg);
+    end
+end
+
+if ~isfield(params, 'extractionWorkers') || isempty(params.extractionWorkers)
+    params.extractionWorkers = min(8, params.nWorkers);
+end
+validateattributes(params.extractionWorkers, {'numeric'}, ...
+    {'scalar','real','finite','positive'}, mfilename, 'extractionWorkers');
+params.extractionWorkers = max(1, round(double(params.extractionWorkers)));
+
+if ~isfield(params, 'highResBlockFrames') || isempty(params.highResBlockFrames)
+    params.highResBlockFrames = 600;
+end
+validateattributes(params.highResBlockFrames, {'numeric'}, ...
+    {'scalar','real','finite','positive'}, mfilename, 'highResBlockFrames');
+params.highResBlockFrames = max(1, round(double(params.highResBlockFrames)));
+
+if ~isfield(params, 'savePerTrialSummary') || isempty(params.savePerTrialSummary)
+    params.savePerTrialSummary = true;
+end
+params.savePerTrialSummary = logical(params.savePerTrialSummary);
+end
+

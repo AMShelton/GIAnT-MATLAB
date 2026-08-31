@@ -79,18 +79,18 @@ for problemIx = 1:nProblems %9
         if doParallel
             analysisFutures(problemIx) = parfeval(@extractSources, 6, Y_p, F_inv_p, sources_p, selPix_p, params, GTp);
         else
-            [Hi,Si,Bi, LSi, SNRi, errFinal] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params, GTp); %#ok<ASGLU>
+            [Hi,Si,F0i, LSi, SNRi, errFinal] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params, GTp); %#ok<ASGLU>
         end
     else
         if doParallel
             analysisFutures(problemIx) = parfeval(@extractSources, 5, Y_p, F_inv_p, sources_p, selPix_p, params);
         else
-            [Hi,Si,Bi, LSi, SNRi] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params); %#ok<ASGLU>
+            [Hi,Si,F0i, LSi, SNRi] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params); %#ok<ASGLU>
         end
     end
 
     if ~doParallel %process this problem now
-        %TODO: assemble Hi/Si/Bi/LSi/SNRi into H/B/S/LS/F0/SNR across problems
+        %TODO: assemble Hi/Si/F0i/LSi/SNRi across problems
         error('extractTrial:NonParallelNotImplemented', ...
             ['Non-parallel extractTrial assembly is not implemented. ', ...
              'Call with a single output argument to use the parallel futures path.']);
@@ -98,51 +98,42 @@ for problemIx = 1:nProblems %9
 end
 
 if doParallel
-    varargout{1} = afterAll(analysisFutures,@(x)assembleResults(x, pxList_p, selIdxs, sourceList, numel(sources.R), size(Y_obs,2)),6, "PassFuture",true);
+    varargout{1} = afterAll(analysisFutures,@(x)assembleResults(x, pxList_p, selIdxs, sourceList, numel(sources.R), size(Y_obs,2)),5, "PassFuture",true);
 else
-    varargout = {H,B,S,LS,F0,SNR}; %#ok<USENS>
+    varargout = {H,S,LS,F0,SNR}; %#ok<USENS>
 end
 end
 
-function [H,B,S,LS,F0,SNR] = assembleResults(analysisFutures, pxList_p, selIdxs, sourceList, nSources, nTimepoints)
-%assemble results
-%sz = CC.ImageSize;
+function [H,S,LS,F0,SNR] = assembleResults(analysisFutures, pxList_p, selIdxs, sourceList, nSources, nTimepoints)
+% Assemble compact source outputs across independent spatial subproblems.
+% The full pixel x time baseline movie is intentionally NOT assembled:
+% extractSources computes the source-weighted F0 while the local baseline is
+% already in memory. This removes a large unused intermediate without
+% changing the returned source traces or footprints.
 nFutures = length(analysisFutures);
-%H = nan([sz nSources], 'single');
 for j = 1:nFutures
-    [idx, Hi,Si,Bi, LSi, SNRi] = fetchNext(analysisFutures);
+    [idx, Hi,Si,F0i,LSi,SNRi] = fetchNext(analysisFutures);
     if j==1
-        nChan = size(Bi,3);
+        nChan = size(F0i,3);
         H = nan(nnz(selIdxs>0),nSources, 'single');
-        B = nan(nnz(selIdxs>0), nTimepoints, nChan);
         S = nan(nSources, nTimepoints, nChan);
         LS = nan(nSources, nTimepoints, nChan);
         F0 = nan(nSources, nTimepoints, nChan);
         SNR = nan(nSources,1);
     end
 
-    %nj = size(Hi,2); %number of sources in this subproblem
     pxList = pxList_p{idx};
-    
-    %tmp = nan([prod(sz), nj]);
-    %tmp(pxList,:) = Hi;
-    %H(:,:,sourceList{idx}) = reshape(tmp, [sz nj]); %footprints
     H(selIdxs(pxList),sourceList{idx}) = Hi;
-    B(selIdxs(pxList),:,:) = Bi; %background
-    
-    S(sourceList{idx},:,:) = Si; %spikes
-    LS(sourceList{idx},:,:) = LSi; %least squares estimate
-    for chIx = 1:size(Bi,3)
-        F0(sourceList{idx},:,chIx) = (Hi'*Bi(:,:,chIx))./sum(Hi.^2,1)'; %F0 is weighted background
-    end
+    S(sourceList{idx},:,:) = Si;
+    LS(sourceList{idx},:,:) = LSi;
+    F0(sourceList{idx},:,:) = F0i;
     SNR(sourceList{idx}) = SNRi;
 end
 end
 
 
 
-
-function [H_est,S_est_new, B_est, dFls, Xsnr, errFinal] = extractSources(Y_obs, Finv, sources, selPix, params, GT)
+function [H_est,S_est_new, F0, dFls, Xsnr, errFinal] = extractSources(Y_obs, Finv, sources, selPix, params, GT)
 %performs source extraction by alternating coordinate optimization on the
 %footprints (H,Hs), baseline (B), and source activities (S,X), in a constrained NMF framework
 
@@ -151,8 +142,8 @@ function [H_est,S_est_new, B_est, dFls, Xsnr, errFinal] = extractSources(Y_obs, 
 %selpix is a 2D logical map, containing [#selected pixels] true values, that maps Yobs to 2D space
 %params
 
-%outputs the superresolution source estimate (Hs), the superresolution
-%spikes (S), and the baseline (B)
+%outputs source footprints/activity, compact source-weighted F0,
+%least-squares traces, and SNR
 
 num_channels = size(Y_obs,3);
 if num_channels>1
@@ -238,8 +229,10 @@ for outerLoop = 1:params.nmfIter
         % Objective function handle (returns [f,g, Hinfo])
         objS = @(x) objfun_S_wrapper(x, Y_obs, H_est, B_est, params.k, Finv, params.lambda);
 
-        % Hessian multiply for fmincon signature (x,y,flag)
-        opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_wrapper(hinfo, Y_obs, H_est, B_est, params.k, Finv, params.lambda, v); %hessmult_S_wrapper takes (Svec, Z, H, B, k, F, lambda, v)
+        % The objective returns a cached curvature coefficient in Hinfo.
+        % Hessian-vector products reuse that state instead of recomputing
+        % the full forward model for every PCG iteration.
+        opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_cached(hinfo, H_est, params.k, v);
 
         % Call fmincon
         [S_est_new, lossS] = fmincon(objS, S_est, [], [], [], [], problemS.lb, problemS.ub, [], opts);
@@ -267,8 +260,11 @@ for outerLoop = 1:params.nmfIter
     residWeights = 1./Finv;
     residWeights(resid>=0) = 0;
     residVar = sum(resid.^2.*residWeights,2)./sum(residWeights,2);
-    W = diag(1./residVar);
-    covX = inv(H_est' * W * H_est); %uncertainty estimate for X
+    % Equivalent to H_est' * diag(1./residVar) * H_est without
+    % constructing the potentially large dense diagonal matrix.
+    precision = 1./residVar;
+    gramX = H_est' * (H_est .* precision);
+    covX = inv(gramX); % uncertainty estimate for X
     Xnoise = sqrt(diag(covX)./params.tau_full);
     Xsnr = std(X_est_new, 0,2)./Xnoise;
 
@@ -289,8 +285,8 @@ for outerLoop = 1:params.nmfIter
     if doFitH
         opts.TypicalX = max(H_est, 0.01);
         % Objective function handle (returns [f,g, Hinfo])
-        objHs = @(Hs) objfun_Hs_wrapper(Hs, Y_obs, X_est_new, B_est, params.Hfilter, selPix, Finv, params.lambda); %(Hs_vec, Z, X, B, kk, selPix, F, lambda, v)
-        opts.HessianMultiplyFcn = @(Hinfo, v, flag) hessmult_Hs_wrapper(Hinfo, Y_obs, X_est_new, B_est, params.Hfilter,selPix, Finv, params.lambda, v);
+        objHs = @(Hs) objfun_Hs_wrapper(Hs, Y_obs, X_est_new, B_est, params.Hfilter, selPix, Finv, params.lambda);
+        opts.HessianMultiplyFcn = @(Hinfo, v, flag) hessmult_Hs_cached(Hinfo, X_est_new, params.Hfilter, selPix, v);
         % Call fmincon
         [Hs_est_new,lossH] = fmincon(objHs, Hs_est, [], [], [], [], problemH.lb, problemH.ub, [], opts);
     else
@@ -325,8 +321,8 @@ opts.TypicalX = typicalX;
 % Objective function handle (returns [f,g, Hinfo])
 objS = @(x) objfun_S_wrapper(x, Y_obs, H_est, B_est, params.k, Finv, params.lambda*params.phi);
 
-% Hessian multiply for fmincon signature (x,y,flag)
-opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_wrapper(hinfo, Y_obs, H_est, B_est, params.k, Finv, params.lambda*params.phi, v); %hessmult_S_wrapper takes (Svec, Z, H, B, k, F, lambda, v)
+% Reuse curvature state returned by the objective.
+opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_cached(hinfo, H_est, params.k, v);
 
 % Call fmincon
 [S_est_new, lossS] = fmincon(objS, S_est_new, [], [], [], [], problemS.lb, problemS.ub, [], opts);
@@ -341,8 +337,11 @@ resid = Y_obs - (B_est + H_est*X_est_new);
 residWeights = 1./Finv;
 residWeights(resid>=0) = 0;
 residVar = sum(resid.^2.*residWeights,2)./sum(residWeights,2);
-W = diag(1./residVar);
-covX = inv(H_est' * W * H_est); %uncertainty estimate for X
+% Equivalent to H_est' * diag(1./residVar) * H_est without
+% constructing the potentially large dense diagonal matrix.
+precision = 1./residVar;
+gramX = H_est' * (H_est .* precision);
+covX = inv(gramX); % uncertainty estimate for X
 Xnoise = sqrt(diag(covX)./params.tau_full);
 Xsnr = std(X_est_new, 0,2)./Xnoise;
 
@@ -357,7 +356,7 @@ dFls = H_est\(Y_obs-B_est);
 if ~isempty(Y2) % two-channel recording, process calcium data with same source footprints
     %fit initial baseline
     B2 = max(params.minBaseline, splitFreq(Y2, params.denoiseWindow_samps, ceil(params.baselineWindow_samps/params.denoiseWindow_samps)));
-    opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_wrapper(hinfo, Y2, H_est, B2, params.k2, Finv, params.lambda, v); %hessmult_S_wrapper takes (Svec, Z, H, B, k, F, lambda, v)
+    opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_cached(hinfo, H_est, params.k2, v);
     opts.MaxIterations = 15;
     LS2 = H_est\(Y2-B2);
     objS = @(x) objfun_S_wrapper(x, Y2, H_est, B2, params.k2, Finv, params.lambda);
@@ -389,6 +388,15 @@ if ~isempty(Y2) % two-channel recording, process calcium data with same source f
     B_est = cat(3, B_est, B2); 
     dFls = cat(3, dFls, LS2); 
     %Xsnr = cat(2, Xsnr, X2snr);
+end
+
+% Compute the compact source-weighted baseline before the local pixel x
+% time baseline is released. Previously all local B matrices were returned
+% and reassembled into a huge global B that was never saved.
+denH = sum(H_est.^2,1)';
+F0 = nan(num_sources, num_time_points, size(B_est,3));
+for chIx = 1:size(B_est,3)
+    F0(:,:,chIx) = (H_est' * B_est(:,:,chIx)) ./ denH;
 end
 
 end
@@ -452,10 +460,10 @@ for iter = 1:3
     end
 end
 tDS = (denoiseWindow+1)/2 + (denoiseWindow).*(0:size(SMa,2)-1);
-LP = nan(size(A));
-for pxIx = 1:size(LP,1)
-    LP(pxIx,:) = interp1(tDS,SMa(pxIx,:)',t,'linear','extrap');
-end
+% interp1 can process every pixel as a column at once. This is
+% mathematically equivalent to the former per-pixel loop but avoids
+% thousands of MATLAB function calls.
+LP = interp1(tDS, SMa.', t, 'linear', 'extrap').';
 HP = A-LP;
 end
 
@@ -580,19 +588,55 @@ else %loss and gradient
 end
 end
 
-function [f, gHs, Hinfo] = objfun_Hs_wrapper(Hs, Z, X, B, kk, selPix, F, lambda)
-[f, gHs] = objfun_Hs(Hs, Z, X, B, kk, selPix, F, lambda);
-Hinfo = Hs;
-% if f<0 || ~isreal(gHs) || ~isreal(f)
-%     keyboard
-% end
+function [f, gHs, Hinfo] = objfun_Hs_wrapper(Hs, Z, X, B, kk, selPix, F, lambda) %#ok<INUSD>
+% Objective/gradient plus cached curvature state for fmincon.
+ns = size(Hs,2);
+selPix3D = repmat(selPix,1,1,ns);
+
+tmp = zeros([size(selPix) ns]);
+tmp(selPix3D) = Hs;
+tmp = convn(tmp, kk, 'same');
+tmp = reshape(tmp,[numel(selPix), ns]);
+H = tmp(selPix(:),:);
+
+T = H*X + B;
+E = Z-T;
+s = T+1;
+
+f = sum((E.^2)./(F.*s),'all');
+p = -(2.*E.*s + E.^2)./(F.*(s.^2));
+gH = p*X.';
+
+tmp = zeros([size(selPix) ns]);
+tmp(selPix3D) = gH;
+tmp = convn(tmp, rot90(kk,2), 'same');
+gHs = reshape(tmp(selPix3D), size(Hs));
+
+% This is the only current-state quantity required by every Hessian-vector
+% product. Keeping it avoids recomputing H, T and s up to MaxPCGIter times.
+Hinfo.coef = 2.*(Z+1).^2./(F.*(s.^3));
 end
 
-function HvHs = hessmult_Hs_wrapper(Hs, Z, X, B, kk, selPix, F, lambda, v)
-[~,~,HvHs] = objfun_Hs(Hs, Z, X, B, kk, selPix, F, lambda, v);
-% if ~isreal(HvHs)
-%     keyboard
-% end
+function HvHs = hessmult_Hs_cached(Hinfo, X, kk, selPix, v)
+coef = Hinfo.coef;
+ns = size(X,1);
+selPix3D = repmat(selPix,1,1,ns);
+HvHs = zeros(size(v));
+
+for rix = size(v,2):-1:1
+    tmp = zeros(size(selPix3D));
+    tmp(selPix3D) = v(:,rix);
+    tmp = convn(tmp, kk, 'same');
+    V = reshape(tmp(selPix3D), [], ns);
+
+    dT = V*X;
+    HvH = (coef.*dT)*X.';
+
+    tmp = zeros(size(selPix3D));
+    tmp(selPix3D) = HvH;
+    tmp = convn(tmp, rot90(kk,2), 'same');
+    HvHs(:,rix) = tmp(selPix3D);
+end
 end
 
 %%%%%
@@ -670,23 +714,36 @@ end
 end
 
 function [f, gS, Hinfo] = objfun_S_wrapper(S, Z, H, B, k, F, lambda)
-[f, gS] = objfun_S(S, Z, H, B, k, F, lambda); %objfun_S takes (S, Z, H, B, k, F, lambda, v)
-Hinfo = S; %Hessian depends on S
-% if f<0 || ~isreal(gS) || ~isreal(f)
-%     keyboard
-% end
+% Objective/gradient plus cached curvature state for fmincon.
+X = convn(S,k,'same');
+T = H*X + B;
+E = Z-T;
+s = T+1;
+
+f = sum((E.^2)./(F.*s),'all') + lambda.*sum(S(:));
+p = -(2.*E.*s + E.^2)./(F.*(s.^2));
+gX = H.'*p;
+gS = convn(gX,flip(k),'same') + lambda;
+
+% Hessian-vector products at this iterate depend on T only through this
+% coefficient. Caching it preserves the exact Hessian used previously.
+Hinfo.coef = 2.*(Z+1).^2./(F.*(s.^3));
 end
 
-function HvS = hessmult_S_wrapper(S, Z, H, B, k, F, lambda, v)
-% Svec : current S flattened
-% p = size(H,2);
-% n = size(Z,2);
-% S = reshape(S, p, n); %perhaps unnecessary?
+function HvS = hessmult_S_cached(Hinfo, H, k, v)
+coef = Hinfo.coef;
+HvS = zeros(size(v));
+nSources = size(H,2);
+nTime = numel(v(:,1))/nSources;
 
-[~,~,HvS] = objfun_S(S, Z, H, B, k, F, lambda, v);
-% if ~isreal(HvS)
-%     keyboard
-% end
+for rix = size(v,2):-1:1
+    V = reshape(v(:,rix), nTime, nSources).';
+    dX = convn(V,k,'same');
+    dT = H*dX;
+    tmp = H.'*(coef.*dT);
+    Hv = convn(tmp,flip(k),'same');
+    HvS(:,rix) = Hv(:);
+end
 end
 
 function Xfloor = computeFloor(X, denoiseWindow, baseline)

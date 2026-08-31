@@ -48,7 +48,7 @@ Typical flow for standard multi-TIFF / ScanImage-style recordings:
 1. **`buildTrialTable`** — choose a data folder (and optional save folder). Writes `trial_table.h5` under the save directory.
 2. **`StripRegistration`** — select that `trial_table.h5` (or pass its path). Writes registered TIFFs and `*_ALIGNMENTDATA.h5` under `motion_correction/`. Requires NoRMCorre and Fast_Tiff_Write on the path.
 3. **Optional: `annotateROIs`** — draw exclude / soma ROIs; writes `annotations.h5`.
-4. **`SILo`** — select the same `trial_table.h5` (or its folder). In the parameter GUI, leave **`isSLAP2`** as `false` (default). Writes `experiment_summary.h5` and `per_trial_summary.h5` under `source_extraction/`.
+4. **`SILo`** — select the same `trial_table.h5` (or its folder). In the parameter GUI, leave **`isSLAP2`** as `false` (default). Writes `experiment_summary.h5` under `source_extraction/`; `per_trial_summary.h5` is optional via `savePerTrialSummary`.
 
 Example (interactive prompts omitted when paths are passed):
 
@@ -78,14 +78,18 @@ SILo;                   % isSLAP2 = true
 
 ### Runtime and resource optimizations
 
-The SLAP2 processing path includes several optimizations for large multi-ROI recordings:
+The SLAP2 processing path includes several optimizations for large multi-ROI recordings. These changes preserve the 200-Hz extraction pathway and the existing motion/source models; they target allocation, I/O layout, interpolation, and repeated solver work.
 
-* **`MultiRoiRegistration`** streams the large `/slap2/varFacDS` variance-factor movie directly to H5 in small batches instead of holding the full 3-D array in each parallel worker. Registration also searches only within `clipShift` of the previous motion estimate, preventing correlation cost from growing with accumulated XY drift.
-* **`SILo`** reads alignment metadata without loading `/slap2/varFacDS` into memory and performs activity localization in bounded spatial tiles. Variance data are read lazily from H5; when needed, they are temporarily rechunked for efficient spatial access.
-* **Parallel worker counts are RAM-aware.** SILo estimates a safe worker count from available memory and registered-movie size rather than assuming that every requested worker can run concurrently.
-* `localizationTileSize` (default `96` pixels) controls the SILo localization RAM/speed tradeoff. `localizationTempDir` controls where temporary rechunked H5 data are stored; a fast local SSD is recommended for best performance.
+* **`MultiRoiRegistration`** streams `/slap2/varFacDS` instead of holding the complete 3-D variance movie in every process worker. `varFacChunkXY` (default `128`) writes this dataset in spatially tiled HDF5 chunks so SILo can read localization tiles directly without first copying/rechunking the entire dataset. Registration searches only within `clipShift` of the previous motion estimate, preventing correlation cost from growing with accumulated XY drift.
+* **SILo localization** loads alignment metadata without materializing `/slap2/varFacDS` and performs activity localization in bounded spatial tiles. `localizationTileSize` controls the RAM/speed tradeoff; `localizationTempDir` is only needed to cache older alignment files whose variance datasets were written with full-frame chunks.
+* **200-Hz SLAP2 extraction interpolates only needed output pixels.** Source neighborhoods, global-trace pixels, and user-ROI pixels are combined into one union mask and passed through the same freshness-weighted bilinear interpolation used previously. The complete registered FOV is no longer generated at every 200-Hz sample merely to discard most pixels afterwards.
+* **High-resolution I/O runs in forward block order** and `highResBlockFrames` controls the number of reconstructed 200-Hz frames per raw-data block.
+* **NMF source extraction reuses Hessian curvature state** between `fmincon` PCG Hessian-vector products, vectorizes baseline interpolation across pixels, and avoids constructing a large dense diagonal precision matrix.
+* **Unused full baseline movies are no longer reassembled.** Source-weighted `F0` is calculated inside each spatial subproblem before the local baseline is released.
+* **Parallelism is stage-specific.** `nWorkers` controls trial localization/process workers while `extractionWorkers` controls concurrent high-resolution NMF subproblems.
+* **`savePerTrialSummary`** controls whether `per_trial_summary.h5` is written. The default is `true` for backwards compatibility. Set it to `false` when the very large per-trial full-FOV footprint/QC file is not required; `experiment_summary.h5` is still written normally.
 
-These changes substantially reduce peak RAM use, especially when processing several trials in parallel, while retaining the existing output-file schema. The main tradeoff is increased temporary disk I/O during SILo localization. For motion-heavy recordings, choose `clipShift` large enough to accommodate true frame-to-frame motion and QC the resulting motion traces.
+SILo prints coarse localization, raw `getImages`, selected-pixel interpolation, and high-resolution extraction timings to make bottlenecks visible on real datasets. Local SSD storage is strongly recommended for raw SLAP2 data and GIAnT outputs. For motion-heavy recordings, choose `clipShift` and `maxshift` from motion QC rather than reducing sampling or source-extraction quality to gain speed.
 
 ## Epoch and analysis trial
 
@@ -439,7 +443,7 @@ String fields are stored as UTF-16 code units (`uint16`) for robust MATLAB/Pytho
 
 ### `per_trial_summary.h5`
 
-`SILo.m` writes `per_trial_summary.h5` alongside `experiment_summary.h5` in `source_extraction/`. The trial axis matches `trial_table.h5` (all analysis trials); trials without alignment or source-extraction data are left as NaN in the corresponding slices.
+When `savePerTrialSummary=true`, `SILo.m` writes `per_trial_summary.h5` alongside `experiment_summary.h5` in `source_extraction/`. Set `savePerTrialSummary=false` to skip this optional, potentially very large file while retaining `experiment_summary.h5`. The trial axis matches `trial_table.h5` (all analysis trials); trials without alignment or source-extraction data are left as NaN in the corresponding slices.
 
 **Indexing conventions.** Same as `experiment_summary.h5`: coordinate fields use **0-indexed** `[z_loc, y_loc, x_loc]` (image axis order: `fastz`, rows, cols); `z_loc` is the 0-based `fastz` index, currently always `0`.
 

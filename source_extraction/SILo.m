@@ -10,6 +10,7 @@ else
 end
 % Fixed values; user/GUI/JSON cannot override these in SILo
 params.minBaseline = 0.01;
+runTimer = tic;
 
 % RAM-optimized source-localization settings. These are hidden performance
 % controls rather than scientific parameters; callers may override them in
@@ -228,6 +229,7 @@ for DMDix = nDMDs:-1:1
 
     %Perform Localizations
     disp('Loading data and performing localizations...')
+    localizationTimer = tic;
     mIM = cell(1, nTrials); aIM = cell(1,nTrials); alignData = cell(1, nTrials); peaks = cell(1, nTrials); discardFrames = cell(1,nTrials);
     fns = trialTable.motion_correction.fn_reg_ds(DMDix, :);
     if nWorkers>1
@@ -247,6 +249,8 @@ for DMDix = nDMDs:-1:1
             end
         end
     end
+    fprintf('Path %d trial localization: %.1f min\n',DMDix,toc(localizationTimer)/60);
+
     %Assemble same-sized mean images from different-sized trial means
     szm1 = max(cellfun(@(x)size(x,1),mIM)); szm2 = max(cellfun(@(x)size(x,2), aIM));
     % Visualization/localization images do not require double precision.
@@ -377,6 +381,7 @@ for DMDix = nDMDs:-1:1
     end
 
     if any(keepSources)
+        highResTimer = tic;
         fns = trialTable.source_extraction.fn_raw(DMDix,:);
         if params.isSLAP2
             if isfield(trialTable, 'datadr') && ~isempty(trialTable.datadr)
@@ -393,18 +398,25 @@ for DMDix = nDMDs:-1:1
             E = processAllTrials_Async(mocodr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
         end
         exptSummary.E(:,DMDix) = E;
+        fprintf('Path %d high-resolution extraction: %.1f min\n', ...
+            DMDix,toc(highResTimer)/60);
     end
     exptSummary.selPix{DMDix} = any(selPix,3);
     exptSummary.sources{DMDix} = sources;
     exptSummary.aData(:,DMDix) = alignData;
     exptSummary.userROIs{DMDix} = roiData;
     exptSummary.peaks{DMDix}= peaks;
-    % Only aligned per-trial images are consumed by the current HDF5
-    % writers. Avoid retaining duplicate unaligned stacks in exptSummary.
+    % Per-trial aligned images are only needed by per_trial_summary.h5.
+    % When that optional output is disabled, release them immediately.
     exptSummary.perTrialMeanIMs{DMDix} = [];
-    exptSummary.perTrialMeanIMsAligned{DMDix} = meanAligned;
     exptSummary.perTrialActIms{DMDix} = [];
-    exptSummary.perTrialActIMsAligned{DMDix} = actAligned;
+    if params.savePerTrialSummary
+        exptSummary.perTrialMeanIMsAligned{DMDix} = meanAligned;
+        exptSummary.perTrialActIMsAligned{DMDix} = actAligned;
+    else
+        exptSummary.perTrialMeanIMsAligned{DMDix} = [];
+        exptSummary.perTrialActIMsAligned{DMDix} = [];
+    end
     exptSummary.perTrialAlignmentOffsets{DMDix} = motOutput;
 
     clear meanAligned meanIM activIM actAligned E
@@ -426,7 +438,12 @@ exptSummary.dr = dr;
 %save (with retry so a transient HDF5 error does not discard all results)
 trySave(@() saveStructToH5(trialTable, [dr filesep trialTablefn]),          'trial_table');
 trySave(@() saveExperimentSummaryH5(fullfile(savedr, 'experiment_summary.h5'), exptSummary, trialTable), 'experiment_summary');
-trySave(@() savePerTrialSummaryH5(  fullfile(savedr, 'per_trial_summary.h5'),  exptSummary, trialTable), 'per_trial_summary');
+if params.savePerTrialSummary
+    trySave(@() savePerTrialSummaryH5(fullfile(savedr, 'per_trial_summary.h5'), exptSummary, trialTable), 'per_trial_summary');
+else
+    fprintf(['Skipping per_trial_summary.h5 (savePerTrialSummary=false). ' ...
+        'Any existing file is left untouched.\n']);
+end
 
 %verify the saved file is readable and non-empty
 expSumFn = fullfile(savedr, 'experiment_summary.h5');
@@ -451,6 +468,7 @@ else
 end
 
 
+fprintf('Total SILo runtime: %.2f hr\n',toc(runTimer)/3600);
 disp('Done SILo')
 end
 
