@@ -134,6 +134,15 @@ end
 
 
 function [H_est,S_est_new, F0, dFls, Xsnr, errFinal] = extractSources(Y_obs, Finv, sources, selPix, params, GT)
+%PERFORMS SOURCE EXTRACTION by alternating coordinate optimization.
+%
+% Optimization Toolbox solvers used below require double-precision X0,
+% objective values, gradients, and HessianMultiplyFcn cache values. Keep the
+% large upstream movie/interpolation pathway in single precision, but make
+% this compact selected-pixel solver boundary explicitly double.
+Y_obs = double(Y_obs);
+Finv = double(Finv);
+
 %performs source extraction by alternating coordinate optimization on the
 %footprints (H,Hs), baseline (B), and source activities (S,X), in a constrained NMF framework
 
@@ -612,13 +621,17 @@ tmp(selPix3D) = gH;
 tmp = convn(tmp, rot90(kk,2), 'same');
 gHs = reshape(tmp(selPix3D), size(Hs));
 
-% This is the only current-state quantity required by every Hessian-vector
-% product. Keeping it avoids recomputing H, T and s up to MaxPCGIter times.
-Hinfo.coef = 2.*(Z+1).^2./(F.*(s.^3));
+% fmincon requires every value returned by the objective to be DOUBLE.
+% HessianMultiplyFcn may use the third objective output as arbitrary cached
+% numeric state, but it still must be a double array. Return the curvature
+% coefficient itself instead of a struct containing that coefficient.
+Hinfo = double(2.*(Z+1).^2./(F.*(s.^3)));
+f = double(f);
+gHs = double(gHs);
 end
 
 function HvHs = hessmult_Hs_cached(Hinfo, X, kk, selPix, v)
-coef = Hinfo.coef;
+coef = Hinfo;
 ns = size(X,1);
 selPix3D = repmat(selPix,1,1,ns);
 HvHs = zeros(size(v));
@@ -726,12 +739,16 @@ gX = H.'*p;
 gS = convn(gX,flip(k),'same') + lambda;
 
 % Hessian-vector products at this iterate depend on T only through this
-% coefficient. Caching it preserves the exact Hessian used previously.
-Hinfo.coef = 2.*(Z+1).^2./(F.*(s.^3));
+% coefficient. fmincon requires all objective outputs, including this
+% HessianMultiplyFcn cache, to be DOUBLE. Return the coefficient directly
+% rather than wrapping it in a struct.
+Hinfo = double(2.*(Z+1).^2./(F.*(s.^3)));
+f = double(f);
+gS = double(gS);
 end
 
 function HvS = hessmult_S_cached(Hinfo, H, k, v)
-coef = Hinfo.coef;
+coef = Hinfo;
 HvS = zeros(size(v));
 nSources = size(H,2);
 nTime = numel(v(:,1))/nSources;
