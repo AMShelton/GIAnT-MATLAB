@@ -170,13 +170,14 @@ waitfor(handles.F);
                     valueIx = get(src,'Value');
                     optsOut.(fieldName) = strcmpi(stringsIn{valueIx},'true');
 
-                case 'double'
+                case {'double','single','int8','uint8','int16','uint16', ...
+                        'int32','uint32','int64','uint64'}
                     txt = get(src,'String');
                     value = str2num(txt); %#ok<ST2NM>
                     if isempty(value) && ~isempty(strtrim(txt))
                         error('Could not parse numeric value.');
                     end
-                    optsOut.(fieldName) = value;
+                    optsOut.(fieldName) = cast(value, valueType);
 
                 case 'cell'
                     stringsIn = get(src,'String');
@@ -235,7 +236,19 @@ waitfor(handles.F);
         for k = 1:numel(loadedNames)
             fieldName = loadedNames{k};
             if isfield(mergedOpts,fieldName)
-                mergedOpts.(fieldName) = loadedOpts.(fieldName);
+                % The current setParams struct is the authoritative type
+                % schema.  Presets written by Python/older MATLAB code can
+                % encode logical values as int64/uint8 (0/1); normalize them
+                % back to the current schema before building UI controls.
+                try
+                    mergedOpts.(fieldName) = coercePresetValue( ...
+                        loadedOpts.(fieldName), schemaOpts.(fieldName), fieldName);
+                catch ME
+                    warning('optionsGUI:PresetTypeMismatch', ...
+                        ['Ignoring incompatible preset value for "%s" and ' ...
+                         'keeping the current default: %s'], ...
+                        fieldName, ME.message);
+                end
             else
                 ignored(end+1,1) = string(fieldName); %#ok<AGROW>
             end
@@ -293,7 +306,8 @@ waitfor(handles.F);
                     'Position',[xEdit y editW rowH], ...
                     'Callback',@(src,evnt) parseET(src,n));
 
-            case 'double'
+            case {'double','single','int8','uint8','int16','uint16', ...
+                    'int32','uint32','int64','uint64'}
                 handles.ET(n) = uicontrol( ...
                     'Units','pixels', ...
                     'Parent',handles.F, ...
@@ -403,3 +417,70 @@ error('optionsGUI:InvalidPreset', ...
     ['Preset must contain a scalar struct named "optsOut" or "params", ' ...
      'or exactly one scalar struct variable.']);
 end
+
+function valueOut = coercePresetValue(valueIn, schemaValue, fieldName)
+%COERCEPRESETVALUE Normalize a loaded preset to the current setParams type.
+%
+% In particular, MAT files generated outside MATLAB often store logical
+% false/true as integer 0/1.  optionsGUI should not allow those storage
+% details to mutate the parameter schema.
+
+schemaClass = class(schemaValue);
+
+if islogical(schemaValue)
+    if islogical(valueIn)
+        valueOut = valueIn;
+    elseif isnumeric(valueIn)
+        if any(~isfinite(double(valueIn(:)))) || ...
+                any(~ismember(double(valueIn(:)),[0 1]))
+            error('Logical option "%s" must contain only 0/1 values.',fieldName);
+        end
+        valueOut = logical(valueIn);
+    elseif ischar(valueIn) || (isstring(valueIn) && isscalar(valueIn))
+        txt = lower(strtrim(char(string(valueIn))));
+        if any(strcmp(txt,{'true','1'}))
+            valueOut = true;
+        elseif any(strcmp(txt,{'false','0'}))
+            valueOut = false;
+        else
+            error('Could not interpret "%s" as a logical value.',txt);
+        end
+    else
+        error('Cannot convert %s to logical.',class(valueIn));
+    end
+
+    % GUI logical options are scalar in the current GIAnT schemas.
+    if ~isscalar(valueOut)
+        error('Logical option "%s" must be scalar.',fieldName);
+    end
+    return
+end
+
+if isnumeric(schemaValue)
+    if ~(isnumeric(valueIn) || islogical(valueIn))
+        error('Cannot convert %s to numeric type %s.',class(valueIn),schemaClass);
+    end
+    valueOut = cast(valueIn,schemaClass);
+    return
+end
+
+if ischar(schemaValue)
+    if ischar(valueIn)
+        valueOut = valueIn;
+    elseif isstring(valueIn) && isscalar(valueIn)
+        valueOut = char(valueIn);
+    else
+        error('Cannot convert %s to char.',class(valueIn));
+    end
+    return
+end
+
+if isstring(schemaValue)
+    valueOut = string(valueIn);
+    return
+end
+
+% Preserve legacy behavior for cell/drop-down and other supported types.
+valueOut = valueIn;
+end
+
