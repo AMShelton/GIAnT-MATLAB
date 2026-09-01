@@ -106,12 +106,18 @@ function [A,F] = sampleBatchPairs(M,freshness,rr,cc)
 % Sample corresponding row/column pairs for multiple frames at once.
 
 [nRows,nCols,nChannels,nFrames] = size(M);
-nSelected = size(rr,1);
 
-if ~isequal(size(rr),size(cc)) || size(rr,2) ~= nFrames
+% Normalize singleton-dimension cases explicitly.  MATLAB may represent an
+% N-by-1 or 1-by-N coordinate array differently after scalar expansion, so
+% infer the selected-pixel count from the known frame count and reshape both
+% coordinate arrays to selectedPixels x frames before any logical indexing.
+if numel(rr) ~= numel(cc) || nFrames < 1 || mod(numel(rr),nFrames) ~= 0
     error('interpFramesSelectedBatch:CoordinateSizeMismatch', ...
-        'Coordinate arrays must be selectedPixels x frames.');
+        'Coordinate arrays must contain selectedPixels x frames elements.');
 end
+nSelected = numel(rr) / nFrames;
+rr = reshape(rr,[nSelected nFrames]);
+cc = reshape(cc,[nSelected nFrames]);
 
 valid = rr>=1 & rr<=nRows & cc>=1 & cc<=nCols;
 
@@ -127,19 +133,27 @@ validVec = valid(:);
 rrValid = rr(valid);
 ccValid = cc(valid);
 spatialIdx = sub2ind([nRows nCols],rrValid,ccValid);
+% Force all gathered index arrays to column vectors.  MATLAB can preserve
+% row-vector orientation through logical indexing in singleton-dimension
+% cases; mixing a row spatialIdx with a column frameIdx would trigger
+% implicit expansion and produce an N-by-N index matrix.
+spatialIdx = spatialIdx(:);
 
 % MATLAB linearizes selectedPixels x frames column-by-column.
 frameIdxAll = repelem((1:nFrames)',nSelected);
 frameIdx = frameIdxAll(validVec);
+frameIdx = frameIdx(:);
 
 freshFlat = freshness(:);
 freshLin = spatialIdx + (frameIdx-1)*nPx;
-F(valid) = freshFlat(freshLin);
+freshLin = freshLin(:);
+F(validVec) = freshFlat(freshLin);
 
 for ch = 1:nChannels
     yLin = spatialIdx + (ch-1)*nPx + (frameIdx-1)*nPx*nChannels;
+    yLin = yLin(:);
     tmp = nan(nSelected,nFrames,'like',M);
-    tmp(valid) = M(yLin);
+    tmp(validVec) = M(yLin);
     A(:,ch,:) = reshape(tmp,[nSelected 1 nFrames]);
 end
 end

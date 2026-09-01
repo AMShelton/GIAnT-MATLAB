@@ -51,3 +51,44 @@ idx = [1; 5; 43; 120; 250];
 verifyEqual(testCase,a,c,'AbsTol',1e-12);
 verifyEqual(testCase,b,d,'AbsTol',1e-12);
 end
+
+function testFinalSingletonBatch(testCase)
+rng(7);
+M = rand(10,13,2,5);
+F = 0.5 + rand(10,13,5);
+viewR = (1:14)';
+viewC = 1:17;
+idx = [2; 31; 119];
+motionC = [0.1 -0.2 0.3 -0.1 0.25];
+motionR = [-0.2 0.15 -0.35 0.05 0.4];
+
+% batch size 4 forces the last internal batch to contain exactly one frame.
+[a,b] = interpFramesSelectedBatch(M,viewC-2,viewR-2,F,idx,motionC,motionR,4);
+
+c = nan(numel(idx),2,5);
+d = nan(numel(idx),5);
+for k = 1:5
+    [c(:,:,k),d(:,k)] = interpFramesSelected( ...
+        M(:,:,:,k),viewC-2+motionC(k),viewR-2+motionR(k),F(:,:,k),idx);
+end
+verifyEqual(testCase,a,c,'AbsTol',1e-12);
+verifyEqual(testCase,b,d,'AbsTol',1e-12);
+end
+
+function testOneSelectedPixel(testCase)
+M = rand(8,9,1,3);
+F = ones(8,9,3);
+viewR = (1:10)';
+viewC = 1:11;
+idx = 27;
+mc = [0.2 -0.1 0.4];
+mr = [-0.3 0.25 0.1];
+[a,b] = interpFramesSelectedBatch(M,viewC-1,viewR-1,F,idx,mc,mr,2);
+c = nan(1,1,3); d = nan(1,3);
+for k = 1:3
+    [c(:,:,k),d(:,k)] = interpFramesSelected( ...
+        M(:,:,:,k),viewC-1+mc(k),viewR-1+mr(k),F(:,:,k),idx);
+end
+verifyEqual(testCase,a,c,'AbsTol',1e-12);
+verifyEqual(testCase,b,d,'AbsTol',1e-12);
+end
