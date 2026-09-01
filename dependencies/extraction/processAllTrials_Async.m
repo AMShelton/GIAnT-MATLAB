@@ -100,7 +100,8 @@ try
     E.F0 = F0;
     E.SNR = SNR;
 catch ME
-    fprintf(2,'processResult ERROR: %s\n',ME.message);
+    fprintf(2,'processResult ERROR:\n%s\n', ...
+        getReport(ME,'extended','hyperlinks','off'));
     rethrow(ME);
 end
 end

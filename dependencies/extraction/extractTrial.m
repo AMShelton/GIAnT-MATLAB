@@ -69,6 +69,11 @@ for problemIx = 1:nProblems %9
     sources_p.C = sources_p.C-colSupport(1)+1;
     selPix_p = selPix_p(rowSupport(1):rowSupport(2), colSupport(1):colSupport(2));
 
+    % Attach a diagnostic-only context string to this independent
+    % subproblem. This does not affect the numerical computation.
+    params_p = params;
+    params_p.solverContext = sprintf('subproblem %d/%d',problemIx,nProblems);
+
     if nargin>6 %Ground truth supplied
         GTp.S = GT.S(selSources,:); % spikes,sources x time
         GTp.X = GT.X(selSources,:); % S convolved with kernel
@@ -77,15 +82,15 @@ for problemIx = 1:nProblems %9
         GTp.Hs = GT.Hs(selIdxs(pxList_p{problemIx}), selSources); % superres source images; pixels x sources
 
         if doParallel
-            analysisFutures(problemIx) = parfeval(@extractSources, 6, Y_p, F_inv_p, sources_p, selPix_p, params, GTp);
+            analysisFutures(problemIx) = parfeval(@extractSources, 6, Y_p, F_inv_p, sources_p, selPix_p, params_p, GTp);
         else
-            [Hi,Si,F0i, LSi, SNRi, errFinal] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params, GTp); %#ok<ASGLU>
+            [Hi,Si,F0i, LSi, SNRi, errFinal] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params_p, GTp); %#ok<ASGLU>
         end
     else
         if doParallel
-            analysisFutures(problemIx) = parfeval(@extractSources, 5, Y_p, F_inv_p, sources_p, selPix_p, params);
+            analysisFutures(problemIx) = parfeval(@extractSources, 5, Y_p, F_inv_p, sources_p, selPix_p, params_p);
         else
-            [Hi,Si,F0i, LSi, SNRi] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params); %#ok<ASGLU>
+            [Hi,Si,F0i, LSi, SNRi] = extractSources(Y_p, F_inv_p, sources_p, selPix_p, params_p); %#ok<ASGLU>
         end
     end
 
@@ -142,6 +147,40 @@ function [H_est,S_est_new, F0, dFls, Xsnr, errFinal] = extractSources(Y_obs, Fin
 % this compact selected-pixel solver boundary explicitly double.
 Y_obs = double(Y_obs);
 Finv = double(Finv);
+
+% Numerical robustness controls for MATLAB's trust-region-reflective
+% subproblem solver. Successful solves are completely unchanged. Only the
+% rare internal trdog/quad1d square-root failure is retried with a very
+% small positive diagonal shift in the Hessian-vector product.
+if ~isfield(params,'solverRobustFallback') || isempty(params.solverRobustFallback)
+    params.solverRobustFallback = true;
+end
+if ~isfield(params,'solverRetryDamping') || isempty(params.solverRetryDamping)
+    params.solverRetryDamping = [1e-8 1e-6 1e-4];
+end
+if ~isfield(params,'solverRetryPCGIter') || isempty(params.solverRetryPCGIter)
+    params.solverRetryPCGIter = 3;
+end
+if ~isfield(params,'solverContext') || isempty(params.solverContext)
+    params.solverContext = 'source subproblem';
+end
+
+% The objective used below cannot meaningfully accept NaN/Inf observations
+% or non-positive inverse-freshness values. Fail here with a useful message
+% rather than allowing Optimization Toolbox internals to fail opaquely.
+badY = ~isfinite(Y_obs);
+badF = ~isfinite(Finv) | Finv <= 0;
+if any(badY(:))
+    error('GIAnT:NonFiniteSourceData', ...
+        '%s: Y_obs contains %d non-finite values.', ...
+        params.solverContext,nnz(badY));
+end
+if any(badF(:))
+    error('GIAnT:InvalidFreshness', ...
+        ['%s: Finv contains %d non-finite/non-positive values. ' ...
+         'This indicates an upstream interpolation/freshness problem.'], ...
+        params.solverContext,nnz(badF));
+end
 
 %performs source extraction by alternating coordinate optimization on the
 %footprints (H,Hs), baseline (B), and source activities (S,X), in a constrained NMF framework
@@ -244,7 +283,9 @@ for outerLoop = 1:params.nmfIter
         opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_cached(hinfo, H_est, params.k, v);
 
         % Call fmincon
-        [S_est_new, lossS] = fmincon(objS, S_est, [], [], [], [], problemS.lb, problemS.ub, [], opts);
+        [S_est_new, lossS] = fminconTrustRegionRobust( ...
+            objS,S_est,problemS.lb,problemS.ub,opts, ...
+            sprintf('%s: S fit outerLoop=%d',params.solverContext,outerLoop),params);
     else
         S_est_new = S_est;
     end
@@ -297,7 +338,9 @@ for outerLoop = 1:params.nmfIter
         objHs = @(Hs) objfun_Hs_wrapper(Hs, Y_obs, X_est_new, B_est, params.Hfilter, selPix, Finv, params.lambda);
         opts.HessianMultiplyFcn = @(Hinfo, v, flag) hessmult_Hs_cached(Hinfo, X_est_new, params.Hfilter, selPix, v);
         % Call fmincon
-        [Hs_est_new,lossH] = fmincon(objHs, Hs_est, [], [], [], [], problemH.lb, problemH.ub, [], opts);
+        [Hs_est_new,lossH] = fminconTrustRegionRobust( ...
+            objHs,Hs_est,problemH.lb,problemH.ub,opts, ...
+            sprintf('%s: H fit outerLoop=%d',params.solverContext,outerLoop),params);
     else
         Hs_est_new = Hs_est;
     end
@@ -334,7 +377,9 @@ objS = @(x) objfun_S_wrapper(x, Y_obs, H_est, B_est, params.k, Finv, params.lamb
 opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_cached(hinfo, H_est, params.k, v);
 
 % Call fmincon
-[S_est_new, lossS] = fmincon(objS, S_est_new, [], [], [], [], problemS.lb, problemS.ub, [], opts);
+[S_est_new, lossS] = fminconTrustRegionRobust( ...
+    objS,S_est_new,problemS.lb,problemS.ub,opts, ...
+    sprintf('%s: S debias fit',params.solverContext),params);
 
 %update X
 X_est_new = convn(S_est_new, params.k, 'same');
@@ -369,7 +414,9 @@ if ~isempty(Y2) % two-channel recording, process calcium data with same source f
     opts.MaxIterations = 15;
     LS2 = H_est\(Y2-B2);
     objS = @(x) objfun_S_wrapper(x, Y2, H_est, B2, params.k2, Finv, params.lambda);
-    [S2, ~] = fmincon(objS, LS2, [], [], [], [], problemS.lb, problemS.ub, [], opts);
+    [S2, ~] = fminconTrustRegionRobust( ...
+        objS,LS2,problemS.lb,problemS.ub,opts, ...
+        sprintf('%s: channel-2 S fit',params.solverContext),params);
     
     %X2 = convn(S2, params.k2, 'same'); %update X2
     
@@ -628,6 +675,8 @@ gHs = reshape(tmp(selPix3D), size(Hs));
 Hinfo = double(2.*(Z+1).^2./(F.*(s.^3)));
 f = double(f);
 gHs = double(gHs);
+
+validateTrustRegionState(f,gHs,Hinfo,F,s,'H');
 end
 
 function HvHs = hessmult_Hs_cached(Hinfo, X, kk, selPix, v)
@@ -745,6 +794,8 @@ gS = convn(gX,flip(k),'same') + lambda;
 Hinfo = double(2.*(Z+1).^2./(F.*(s.^3)));
 f = double(f);
 gS = double(gS);
+
+validateTrustRegionState(f,gS,Hinfo,F,s,'S');
 end
 
 function HvS = hessmult_S_cached(Hinfo, H, k, v)
@@ -769,3 +820,143 @@ Xmed = medfilt2(X, [1 2*ceil(denoiseWindow)+1],"symmetric");
 Xmed_min = ordfilt2(Xmed, ord, ones(1,ceil(baseline)), 'symmetric');
 Xfloor = smoothdata(Xmed_min, 2,"movmean",ceil(baseline),"omitmissing");
 end
+
+function [x,fval] = fminconTrustRegionRobust(fun,x0,lb,ub,opts,stage,params)
+%FMINCONTRUSTREGIONROBUST Run the normal solver, retrying only trdog/quad1d.
+%
+% MATLAB's trust-region-reflective implementation can rarely terminate in
+% trdog/quad1d when the 2-D trust-region quadratic becomes numerically
+% degenerate. The objective and constraints are not changed here. The first
+% call is byte-for-byte the normal GIAnT solve. If and only if that specific
+% internal error occurs, retry with successively tiny positive diagonal
+% shifts in the Hessian-vector product and a shorter PCG subproblem.
+%
+% Adding mu*I to the Hessian approximation is a standard numerical
+% regularization of the local Newton model; it does not alter the objective
+% being minimized or the source constraints.
+
+try
+    [x,fval] = fmincon(fun,x0,[],[],[],[],lb,ub,[],opts);
+    return
+catch ME
+    if ~isTrdogQuad1dError(ME) || ~logical(params.solverRobustFallback)
+        rethrow(ME);
+    end
+    originalError = ME;
+end
+
+baseHM = opts.HessianMultiplyFcn;
+if isempty(baseHM)
+    rethrow(originalError);
+end
+
+retryLevels = double(params.solverRetryDamping(:).');
+retryLevels = retryLevels(isfinite(retryLevels) & retryLevels > 0);
+if isempty(retryLevels)
+    rethrow(originalError);
+end
+
+fprintf(2,['GIAnT solver warning: %s hit MATLAB trdog/quad1d. ' ...
+    'Retrying the same objective with Hessian damping.\n'],stage);
+
+lastError = originalError;
+for retryIx = 1:numel(retryLevels)
+    relDamping = retryLevels(retryIx);
+    optsRetry = opts;
+    optsRetry.MaxPCGIter = max(1,min(double(opts.MaxPCGIter), ...
+        double(params.solverRetryPCGIter)));
+
+    % Existing GIAnT HessianMultiplyFcn uses the legacy 3-argument callback
+    % signature accepted by this MATLAB configuration.
+    optsRetry.HessianMultiplyFcn = @(Hinfo,v,flag) ...
+        dampedHessianMultiply(baseHM,Hinfo,v,flag,relDamping);
+
+    fprintf(2,'  retry %d/%d: relative damping %.3g, MaxPCGIter=%d\n', ...
+        retryIx,numel(retryLevels),relDamping,optsRetry.MaxPCGIter);
+
+    try
+        [x,fval] = fmincon(fun,x0,[],[],[],[],lb,ub,[],optsRetry);
+        fprintf(2,'  solver retry succeeded for %s\n',stage);
+        return
+    catch MEretry
+        lastError = MEretry;
+        if ~isTrdogQuad1dError(MEretry)
+            rethrow(MEretry);
+        end
+    end
+end
+
+fprintf(2,'GIAnT solver retries exhausted for %s\n',stage);
+rethrow(lastError);
+end
+
+function Hv = dampedHessianMultiply(baseHM,Hinfo,v,flag,relativeDamping)
+%DAMPEDHESSIANMULTIPLY Add a small positive diagonal to the Newton model.
+
+Hv = baseHM(Hinfo,v,flag);
+
+if any(~isfinite(Hv(:)))
+    error('GIAnT:NonFiniteHessianProduct', ...
+        'Hessian-vector product contains non-finite values.');
+end
+
+positiveCurvature = Hinfo(isfinite(Hinfo) & Hinfo > 0);
+if isempty(positiveCurvature)
+    curvatureScale = 1;
+else
+    curvatureScale = median(positiveCurvature(:));
+    if ~isfinite(curvatureScale) || curvatureScale <= 0
+        curvatureScale = 1;
+    end
+end
+
+mu = relativeDamping * max(1,curvatureScale);
+Hv = Hv + mu.*v;
+end
+
+function tf = isTrdogQuad1dError(ME)
+%ISTRDOGQUAD1DERROR Match only the Optimization Toolbox numerical edge case.
+
+tf = contains(ME.message,'Square root error in trdog/quad1d', ...
+    'IgnoreCase',true) || ...
+    contains(ME.identifier,'trdog','IgnoreCase',true);
+
+if ~tf && ~isempty(ME.cause)
+    for k = 1:numel(ME.cause)
+        if isTrdogQuad1dError(ME.cause{k})
+            tf = true;
+            return
+        end
+    end
+end
+end
+
+function validateTrustRegionState(f,g,Hinfo,F,s,stage)
+%VALIDATETRUSTREGIONSTATE Detect invalid model states before trdog sees them.
+
+if ~isfinite(f) || any(~isfinite(g(:)))
+    error('GIAnT:NonFiniteObjective', ...
+        ['%s objective/gradient became non-finite. min(F)=%.4g, ' ...
+         'min(T+1)=%.4g.'], ...
+        stage,min(F(:)),min(s(:)));
+end
+
+if any(~isfinite(Hinfo(:)))
+    error('GIAnT:NonFiniteCurvature', ...
+        ['%s Hessian curvature contains non-finite values. min(F)=%.4g, ' ...
+         'min(T+1)=%.4g.'], ...
+        stage,min(F(:)),min(s(:)));
+end
+
+% For this likelihood the analytic coefficient is non-negative whenever
+% freshness is positive and T+1 is positive. A negative value therefore
+% indicates an invalid numerical/model state, not something to hide by
+% damping.
+if any(Hinfo(:) < 0)
+    error('GIAnT:NegativeCurvatureCoefficient', ...
+        ['%s analytic curvature coefficient became negative. min(F)=%.4g, ' ...
+         'min(T+1)=%.4g.'], ...
+        stage,min(F(:)),min(s(:)));
+end
+end
+
