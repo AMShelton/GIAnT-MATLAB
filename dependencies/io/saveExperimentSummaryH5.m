@@ -278,7 +278,12 @@ for rIx = 1:nRois
         labels(rIx) = string(roiData{rIx}.Label);
     end
     if isfield(roiData{rIx}, 'mask') && ~isempty(roiData{rIx}.mask)
-        masks(rIx, 1, :, :) = logical(roiData{rIx}.mask);
+        tmpMask = logical(roiData{rIx}.mask);
+        nR = min(size(tmpMask,1),imRows);
+        nC = min(size(tmpMask,2),imCols);
+        if nR>0 && nC>0
+            masks(rIx,1,1:nR,1:nC) = reshape(tmpMask(1:nR,1:nC),1,1,nR,nC);
+        end
     end
 end
 ur.labels = cellstr(labels);

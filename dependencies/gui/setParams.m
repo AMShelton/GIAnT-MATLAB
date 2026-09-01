@@ -113,7 +113,7 @@ if isfield(params, 'microscope')
     params = rmfield(params, 'microscope');
 end
 if isfield(params, 'isSLAP2')
-    params.isSLAP2 = logical(params.isSLAP2);
+    params.isSLAP2 = logicalScalar(params.isSLAP2,'isSLAP2');
 end
 if isfield(params, 'nParallelWorkers')
     if ~isfield(params, 'nWorkers')
@@ -131,6 +131,23 @@ function params = normalizeParams(fnName, params)
 %NORMALIZEPARAMS Normalize/validate non-scientific runtime parameters.
 
 if strcmp(fnName, 'MultiRoiRegistration')
+    validateattributes(params.alignHz,{'numeric'},{'scalar','real','finite','positive'},mfilename,'alignHz');
+    validateattributes(params.maxshift,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'maxshift');
+    validateattributes(params.clipShift,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'clipShift');
+    if params.maxshift ~= round(params.maxshift) || params.clipShift ~= round(params.clipShift)
+        error('setParams:NonIntegerMotionSearch','maxshift and clipShift must be integer pixel counts.');
+    end
+    if params.clipShift > params.maxshift
+        error('setParams:InvalidMotionSearch','clipShift (%g) cannot exceed maxshift (%g).',params.clipShift,params.maxshift);
+    end
+    validateattributes(params.alpha,{'numeric'},{'scalar','real','finite','>=',0,'<=',1},mfilename,'alpha');
+    validateattributes(params.nWorkers,{'numeric'},{'scalar','real','finite','positive'},mfilename,'nWorkers');
+    params.nWorkers = max(1,round(double(params.nWorkers)));
+    params.overwriteExisting = logicalScalar(params.overwriteExisting,'overwriteExisting');
+    params.refStackTemplate = logicalScalar(params.refStackTemplate,'refStackTemplate');
+    params.isReVolt = logicalScalar(params.isReVolt,'isReVolt');
+    params.includeIntegrationROIs = logicalScalar(params.includeIntegrationROIs,'includeIntegrationROIs');
+
     if ~isfield(params,'varFacChunkXY') || isempty(params.varFacChunkXY)
         params.varFacChunkXY = 128;
     end
@@ -155,22 +172,59 @@ if strcmp(fnName, 'MultiRoiRegistration')
     if ~isfield(params,'reuseSlap2Reader') || isempty(params.reuseSlap2Reader)
         params.reuseSlap2Reader = true;
     end
-    params.reuseSlap2Reader = logical(params.reuseSlap2Reader);
+    params.reuseSlap2Reader = logicalScalar(params.reuseSlap2Reader,'reuseSlap2Reader');
 
     if ~isfield(params,'useFastWeightedXcorr') || isempty(params.useFastWeightedXcorr)
         params.useFastWeightedXcorr = true;
     end
-    params.useFastWeightedXcorr = logical(params.useFastWeightedXcorr);
+    params.useFastWeightedXcorr = logicalScalar(params.useFastWeightedXcorr,'useFastWeightedXcorr');
 
     if ~isfield(params,'useFastInterpolation') || isempty(params.useFastInterpolation)
         params.useFastInterpolation = true;
     end
-    params.useFastInterpolation = logical(params.useFastInterpolation);
+    params.useFastInterpolation = logicalScalar(params.useFastInterpolation,'useFastInterpolation');
     return
 end
 
 if ~strcmp(fnName, 'SILo')
     return
+end
+
+% Validate scientific settings without changing their values. Catch malformed
+% GUI/preset inputs before localization or high-resolution extraction runs.
+params.isSLAP2 = logicalScalar(params.isSLAP2,'isSLAP2');
+params.includeIntegrationROIs = logicalScalar(params.includeIntegrationROIs,'includeIntegrationROIs');
+params.drawUserRois = logicalScalar(params.drawUserRois,'drawUserRois');
+validateattributes(params.sigma_px,{'numeric'},{'scalar','real','finite','positive'},mfilename,'sigma_px');
+validateattributes(params.nmfIter,{'numeric'},{'scalar','real','finite','positive'},mfilename,'nmfIter');
+if params.nmfIter ~= round(params.nmfIter)
+    error('setParams:InvalidNmfIter','nmfIter must be a positive integer.');
+end
+validateattributes(params.dXY,{'numeric'},{'scalar','real','finite','positive'},mfilename,'dXY');
+if ~isempty(params.photonScale)
+    validateattributes(params.photonScale,{'numeric'},{'scalar','real','finite','positive'},mfilename,'photonScale');
+end
+validateattributes(params.lambda,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'lambda');
+validateattributes(params.phi,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'phi');
+validateattributes(params.denoiseWindow_s,{'numeric'},{'scalar','real','finite','positive'},mfilename,'denoiseWindow_s');
+validateattributes(params.baselineWindow_Glu_s,{'numeric'},{'scalar','real','finite','positive'},mfilename,'baselineWindow_Glu_s');
+validateattributes(params.baselineWindow_Ca_s,{'numeric'},{'scalar','real','finite','positive'},mfilename,'baselineWindow_Ca_s');
+validateattributes(params.activityChannel,{'numeric'},{'scalar','real','finite','positive'},mfilename,'activityChannel');
+if params.activityChannel ~= round(params.activityChannel)
+    error('setParams:InvalidActivityChannel','activityChannel must be a positive integer.');
+end
+validateattributes(params.tau_s,{'numeric'},{'scalar','real','finite','positive'},mfilename,'tau_s');
+validateattributes(params.tau2_s,{'numeric'},{'scalar','real','finite','positive'},mfilename,'tau2_s');
+validateattributes(params.VIF,{'numeric'},{'scalar','real','finite','positive'},mfilename,'VIF');
+validateattributes(params.peakth,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'peakth');
+validateattributes(params.minPeakDistance,{'numeric'},{'scalar','real','finite','positive'},mfilename,'minPeakDistance');
+validateattributes(params.nWorkers,{'numeric'},{'scalar','real','finite','positive'},mfilename,'nWorkers');
+params.nWorkers = max(1,round(double(params.nWorkers)));
+validateattributes(params.motionThresh,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'motionThresh');
+validateattributes(params.nanThresh,{'numeric'},{'scalar','real','finite','>',0,'<=',1},mfilename,'nanThresh');
+validateattributes(params.discardInitial_s,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'discardInitial_s');
+if params.isSLAP2
+    validateattributes(params.analyzeHz,{'numeric'},{'scalar','real','finite','positive'},mfilename,'analyzeHz');
 end
 
 % Performance-only RAM optimization settings. These defaults make old
@@ -241,17 +295,17 @@ params.selectedInterpBatchFrames = max(1,round(double(params.selectedInterpBatch
 if ~isfield(params, 'reuseSlap2Reader') || isempty(params.reuseSlap2Reader)
     params.reuseSlap2Reader = true;
 end
-params.reuseSlap2Reader = logical(params.reuseSlap2Reader);
+params.reuseSlap2Reader = logicalScalar(params.reuseSlap2Reader,'reuseSlap2Reader');
 
 if ~isfield(params, 'savePerTrialSummary') || isempty(params.savePerTrialSummary)
     params.savePerTrialSummary = true;
 end
-params.savePerTrialSummary = logical(params.savePerTrialSummary);
+params.savePerTrialSummary = logicalScalar(params.savePerTrialSummary,'savePerTrialSummary');
 
 if ~isfield(params, 'solverRobustFallback') || isempty(params.solverRobustFallback)
     params.solverRobustFallback = true;
 end
-params.solverRobustFallback = logical(params.solverRobustFallback);
+params.solverRobustFallback = logicalScalar(params.solverRobustFallback,'solverRobustFallback');
 
 if ~isfield(params, 'solverRetryDamping') || isempty(params.solverRetryDamping)
     params.solverRetryDamping = [1e-8 1e-6 1e-4];
@@ -268,3 +322,16 @@ validateattributes(params.solverRetryPCGIter, {'numeric'}, ...
 params.solverRetryPCGIter = max(1,round(double(params.solverRetryPCGIter)));
 end
 
+function tf = logicalScalar(value,name)
+%LOGICALSCALAR Accept logical scalars and numeric 0/1 from legacy MAT presets.
+if islogical(value) && isscalar(value)
+    tf = value;
+    return
+end
+if isnumeric(value) && isscalar(value) && isfinite(value) && (value==0 || value==1)
+    tf = logical(value);
+    return
+end
+error('setParams:InvalidLogicalParameter', ...
+    '%s must be a scalar logical or numeric 0/1.',name);
+end

@@ -20,6 +20,11 @@ fprintf('High-resolution extraction thread workers: %d\n',targetWorkers);
 numDatasets = numel(fls);
 E = cell(numDatasets,1);
 
+if isempty(validTrials)
+    error('GIAnT:NoValidTrialsForExtraction', ...
+        'processAllTrials_Async received no valid trials for high-resolution extraction.');
+end
+
 % Keep one SLAP2 reader + parsed metadata object alive across the many
 % analysis pseudo-trials that usually point to the same continuous DAT file.
 % Clear it automatically when this path finishes or errors.
@@ -416,15 +421,55 @@ CD.global.F(:,discard) = nan;
 CD.ROIs.F(:, :, discard) = nan;
 CD.ROIs.Fsvd(:,:,discard) = nan;
 
-% Remove nans from IMsel and Finvsel
+% Remove NaNs from selected source traces before optimization. Preserve the
+% legacy repeated moving-mean fill, but operate trace-by-trace so an entirely
+% missing pixel/channel cannot leave the loop running forever.
 nans = isnan(IMsel);
 nanFill = IMsel;
-nanFill(all(nans,3)) = 0;
-while any(isnan(nanFill), 'all')
-    nanFill = smoothdata(nanFill,3,"movmean",params.baselineWindow_samps, 'omitmissing');
+traceFill = reshape(nanFill,[],size(nanFill,3));
+allMissingTraces = all(isnan(traceFill),2);
+traceFill(allMissingTraces,:) = 0;
+nanFill = reshape(traceFill,size(nanFill));
+
+maxFillIterations = max(4,ceil(size(nanFill,3) ./ ...
+    max(1,floor(double(params.baselineWindow_samps)/2))) + 4);
+for fillIteration = 1:maxFillIterations
+    nMissingBefore = nnz(isnan(nanFill));
+    if nMissingBefore == 0
+        break
+    end
+    nanFill = smoothdata(nanFill,3,"movmean",params.baselineWindow_samps,'omitmissing');
+    nMissingAfter = nnz(isnan(nanFill));
+    if nMissingAfter >= nMissingBefore
+        break
+    end
 end
-IMsel(nans) = nanFill(nans); 
-Finvsel(squeeze(nans(:,1,:))) = 1000*mean(Finvsel,'all', 'omitmissing');
+if any(isnan(nanFill),'all')
+    error('GIAnT:NaNFillFailed', ...
+        ['Could not fill %d missing selected-pixel samples after %d iterations. ' ...
+         'Check discarded frames, pixel validity, and SLAP2 freshness.'], ...
+        nnz(isnan(nanFill)),maxFillIterations);
+end
+IMsel(nans) = nanFill(nans);
+
+% Missing/interpolated samples receive very low statistical weight. Also
+% repair any non-finite/non-positive inverse-freshness values here so the
+% downstream likelihood never receives an invalid variance coefficient.
+validFinv = Finvsel(isfinite(Finvsel) & Finvsel > 0);
+if isempty(validFinv)
+    error('GIAnT:NoValidFreshness', ...
+        'No finite positive inverse-freshness values remain after high-resolution loading.');
+end
+finvFill = 1000*mean(validFinv,'omitmissing');
+missingActivitySamples = reshape(nans(:,1,:),size(Finvsel));
+Finvsel(missingActivitySamples) = finvFill;
+badFinv = ~isfinite(Finvsel) | Finvsel <= 0;
+Finvsel(badFinv) = finvFill;
+
+if any(~isfinite(IMsel),'all') || any(~isfinite(Finvsel),'all') || any(Finvsel<=0,'all')
+    error('GIAnT:InvalidHighResExtractionInput', ...
+        'Non-finite fluorescence or invalid freshness remained after high-resolution preprocessing.');
+end
 
 CD.Yobs = IMsel;
 CD.Finv = Finvsel;

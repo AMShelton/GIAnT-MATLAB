@@ -130,6 +130,11 @@ for DMDix = nDMDs:-1:1
     aData = loadAlignmentDataLite(fullfile(mocodr, fn));
     numChannels = aData.numChannels;
     params.numChannels = numChannels;
+    if params.activityChannel < 1 || params.activityChannel > numChannels || params.activityChannel ~= round(params.activityChannel)
+        error('SILo:InvalidActivityChannel', ...
+            'activityChannel=%g is invalid for imaging path %d with %d channel(s).', ...
+            params.activityChannel,DMDix,numChannels);
+    end
     params.alignHz = aData.alignHz;
     if ~params.isSLAP2
         params.analyzeHz = 1/aData.frametime; %analyze conventional recordings at the acquisition framerate
@@ -304,11 +309,19 @@ for DMDix = nDMDs:-1:1
     corrThresh = min(0.90, median(corrCoeff, 'omitnan')-2*std(corrCoeff, 'omitmissing'));
     actValidPix = squeeze(mean(~isnan(actAligned(:,:,1,:)), [1 2]));
     validTrials= find(corrCoeff(:)>corrThresh & actValidPix(:)>mean(actValidPix)/2);
+    if isempty(validTrials)
+        error('SILo:NoValidAlignedTrials', ...
+            ['No trials survived SILo cross-trial alignment QC for imaging path %d. ' ...
+             'Inspect registration quality, discarded frames, and trial-table validity.'],DMDix);
+    end
     exptSummary.meanIM{DMDix} = mean(meanAligned(:,:,:,validTrials),4, 'omitnan');
 
     %select sources on aligned activity image
     actIM = mean(actAligned(:,:,:,validTrials), 4, 'includenan');
-    actIM = actIM ./ 10^(floor(log10(max(actIM(:))))-1);
+    actMax = max(actIM(:),[],'omitnan');
+    if isfinite(actMax) && actMax > 0
+        actIM = actIM ./ 10^(floor(log10(actMax))-1);
+    end
     nanFrac = mean(isnan(actAligned(:,:,:,validTrials)), 4);
     actIM(nanFrac>params.nanThresh) = nan;
     medIM = nanmedfilt2(actIM, 5.*[1 1]);
@@ -322,8 +335,12 @@ for DMDix = nDMDs:-1:1
     if ~isempty(ROIs)
         for rix = 1:numel(ROIs(DMDix).roiData)
             if contains(upper(ROIs(DMDix).roiData{rix}.Label), 'SOMA')
-                tmp = ROIs(DMDix).roiData{rix}.mask;
-                somaMask(1:size(tmp,1), 1:size(tmp,2)) = somaMask(1:size(tmp,1), 1:size(tmp,2)) | tmp;
+                tmp = logical(ROIs(DMDix).roiData{rix}.mask);
+                nR = min(size(tmp,1),size(somaMask,1));
+                nC = min(size(tmp,2),size(somaMask,2));
+                if nR>0 && nC>0
+                    somaMask(1:nR,1:nC) = somaMask(1:nR,1:nC) | tmp(1:nR,1:nC);
+                end
             end
         end
     end
@@ -403,7 +420,7 @@ for DMDix = nDMDs:-1:1
     end
     exptSummary.selPix{DMDix} = any(selPix,3);
     exptSummary.sources{DMDix} = sources;
-    exptSummary.aData(:,DMDix) = alignData;
+    exptSummary.aData(:,DMDix) = alignData(:);
     exptSummary.userROIs{DMDix} = roiData;
     exptSummary.peaks{DMDix}= peaks;
     % Per-trial aligned images are only needed by per_trial_summary.h5.

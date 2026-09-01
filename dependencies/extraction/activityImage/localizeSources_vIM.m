@@ -133,13 +133,21 @@ end
 
 varIM(nanFrac>0.4) = nan;
 Vb = params.VIF * prctile(varIM, 10, 'all');
+if ~isscalar(Vb) || ~isfinite(Vb) || Vb <= 0
+    error('localizeSources_vIM:VarianceInterceptFailed', ...
+        'Could not estimate a finite positive variance intercept Vb.');
+end
 brightThresh = prctile(varPred(:), 90);
-selBright = varPred > brightThresh;
+selBright = isfinite(varPred) & varPred > brightThresh;
+if ~any(selBright,'all')
+    error('localizeSources_vIM:VarianceCalibrationPixelsMissing', ...
+        'No bright valid pixels were available to estimate the variance-brightness slope.');
+end
 Vk = prctile((varIM(selBright) - (Vb/params.VIF)) ./ varPred(selBright), 10);
 
-if isempty(Vk) || ~isfinite(Vk)
+if ~isscalar(Vk) || ~isfinite(Vk) || Vk < 0
     error('localizeSources_vIM:VarianceModelFailed', ...
-        'Could not estimate the variance-brightness slope Vk.');
+        'Could not estimate a finite non-negative variance-brightness slope Vk.');
 end
 
 %% Tile-wise matched filtering and source score accumulation

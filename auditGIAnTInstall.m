@@ -24,6 +24,8 @@ requiredFunctions = {
     'interpFramesSelectedBatch',       fullfile('dependencies','alignment','interpFramesSelectedBatch.m')
     'interpFrameTranslationChannels',  fullfile('dependencies','alignment','interpFrameTranslationChannels.m')
     'xcorr2_nans_weighted_fast',       fullfile('dependencies','alignment','xcorr2_nans_weighted_fast.m')
+    'localizeSources_vIM',              fullfile('dependencies','extraction','activityImage','localizeSources_vIM.m')
+    'setParamsExtractTrial',            fullfile('dependencies','extraction','setParamsExtractTrial.m')
     };
 
 n = size(requiredFunctions,1);
@@ -62,6 +64,10 @@ markerChecks = {
     fullfile('dependencies','gui','optionsGUI.m'), 'coercePresetValue'
     fullfile('dependencies','extraction','extractTrial.m'), 'fminconTrustRegionRobust'
     fullfile('dependencies','extraction','processAllTrials_Async.m'), 'interpFramesSelectedBatch'
+    fullfile('dependencies','extraction','processAllTrials_Async.m'), 'GIAnT:NaNFillFailed'
+    fullfile('motion_correction','MultiRoiRegistration.m'), 'lastReaderError'
+    fullfile('source_extraction','SILo.m'), 'SILo:NoValidAlignedTrials'
+    fullfile('dependencies','extraction','extractTrial.m'), 'extractTrial:InvalidPhotonScale'
     };
 
 fprintf('\nRevision-marker checks:\n');

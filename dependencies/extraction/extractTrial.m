@@ -14,6 +14,10 @@ if isempty(params.photonScale) %If not provided, estimate the standard deviation
     selBright = mY(:) > prctile(mY(:), 40) & mY(:) < prctile(mY(:), 90);
     params.photonScale = prctile((pxSTD(selBright).^2-Vb)./mY(selBright), 10);
 end
+if ~isscalar(params.photonScale) || ~isfinite(params.photonScale) || params.photonScale <= 0
+    error('extractTrial:InvalidPhotonScale', ...
+        'photonScale must be one finite positive scalar; received %s.',mat2str(params.photonScale));
+end
 
 %rescale data
 Y_obs = Y_obs./params.photonScale;
@@ -204,6 +208,9 @@ end
 sz = size(selPix);
 num_sources = numel(sources.R);
 num_time_points = size(Y_obs,2);
+if num_time_points < 1
+    error('extractTrial:EmptyTimeAxis','Source-extraction input contains zero time points.');
+end
 
 %Initial estimates for B, S, H
 for six = num_sources:-1:1
@@ -229,7 +236,12 @@ params.denoiseWindow_samps = ceil(params.denoiseWindow_samps);
 B_est = max(params.minBaseline, splitFreq(Y_obs, params.denoiseWindow_samps, ceil(params.baselineWindow_samps/params.denoiseWindow_samps)));
 
 %medRes = median(denoised-LP,2);
-typicalX = sqrt(mean((Y_obs(:,1:100)-B_est(:,1:100)).^2,'all'))*ones(num_sources,num_time_points);
+typicalWindow = 1:min(100,num_time_points);
+typicalScale = sqrt(mean((Y_obs(:,typicalWindow)-B_est(:,typicalWindow)).^2,'all'));
+if ~isfinite(typicalScale) || typicalScale <= 0
+    typicalScale = 1;
+end
+typicalX = typicalScale*ones(num_sources,num_time_points);
 
 dFls = H_est\(Y_obs-B_est);
 

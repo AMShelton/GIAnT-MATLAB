@@ -136,8 +136,9 @@ if ~params.overwriteExisting && exist([mocosavedr filesep fnAdata], 'file') && e
     return
 end
 
-retry=0;
-while retry<10
+readerReady = false;
+lastReaderError = [];
+for retry = 1:10
     try
         fullDatPath = fullfile(trialTable.datadr,fn);
         reuseReader = true;
@@ -147,11 +148,15 @@ while retry<10
         tReaderSetup = tic;
         [S2data,meta,readerCacheHit] = getCachedRegistrationReader(fullDatPath,reuseReader);
         readerSetupSeconds = toc(tReaderSetup);
-        retry = 10;
-    catch
-        retry = retry+1;
-        continue
+        readerReady = true;
+        break
+    catch ME
+        lastReaderError = ME;
     end
+end
+if ~readerReady
+    fprintf(2,'Failed to initialize Slap2DataReader after 10 attempts for %s\n',fullDatPath);
+    rethrow(lastReaderError);
 end
 linerateHz = 1/meta.linePeriod_s;
 dt = linerateHz/aData.alignHz;
@@ -178,23 +183,35 @@ if params.isReVolt
                 minI = min(ii, [], 'omitnan');
                 maxI = max(ii, [], 'omitnan');
             end
-            ixEnd = min(numel(ii), find(ii>(0.2*minI + 0.8*maxI), 1,'first')+1);
-            ix0 = max(1,find(ii(1:ixEnd)<(0.65*minI + 0.35*maxI), 1, 'last')-2);
+            ixEnd0 = find(ii>(0.2*minI + 0.8*maxI),1,'first');
+            if isempty(ixEnd0)
+                warning(['isReVolt flag was set but laser on time could not be detected for file:' fnW ' of ' fn '. skipping...'])
+                registrationFailed = true;
+                return
+            end
+            ixEnd = min(numel(ii),ixEnd0+1);
+            ix00 = find(ii(1:ixEnd)<(0.65*minI + 0.35*maxI),1,'last');
+            if isempty(ix00)
+                warning(['isReVolt flag was set but laser transition could not be bracketed for file:' fnW ' of ' fn '. skipping...'])
+                registrationFailed = true;
+                return
+            end
+            ix0 = max(1,ix00-2);
             if (frames(ixEnd)-frames(ix0)) >=span
                 warning('trouble zooming in on time of light turn on.')
                 break %stop zooming in
             else
                 span = (frames(ixEnd)-frames(ix0));
             end
-            if isempty(ix0) || isempty(ixEnd)
-                warning(['isReVolt flag was set but laser on time could not be detected for file:' fnW ' of ' fn '. skipping...'])
-                registrationFailed = true;
-                return
-            end
             fEnd = frames(ixEnd); f0 = frames(ix0);
         end
-        iMid = find(ii>(min(ii)+max(ii))/2, 1, 'first');
-        firstLine = round(interp1(ii(iMid + [-1 0]), frames(iMid+[-1 0]), (min(ii)+max(ii))/2));
+        iMid = find(ii>(min(ii)+max(ii))/2,1,'first');
+        if isempty(iMid) || iMid < 2
+            warning(['isReVolt flag was set but laser midpoint could not be interpolated for file:' fnW ' of ' fn '. skipping...'])
+            registrationFailed = true;
+            return
+        end
+        firstLine = round(interp1(ii(iMid + [-1 0]),frames(iMid+[-1 0]),(min(ii)+max(ii))/2));
     end
 end
 
@@ -232,8 +249,16 @@ Y = reshape(sum(Yinit,3),rawImageSize(1),rawImageSize(2),nInitFrames);
 clear Yinit
 
 %make data smaller for alignment
-trimRows = find(~all(isnan(Y(:,:,1)),2), 1, 'first'):find(~all(isnan(Y(:,:,1)),2), 1, 'last');
-trimCols = find(~all(isnan(Y(:,:,1)),1), 1, 'first'):find(~all(isnan(Y(:,:,1)),1), 1, 'last');
+firstTrimRow = find(~all(isnan(Y(:,:,1)),2),1,'first');
+lastTrimRow = find(~all(isnan(Y(:,:,1)),2),1,'last');
+firstTrimCol = find(~all(isnan(Y(:,:,1)),1),1,'first');
+lastTrimCol = find(~all(isnan(Y(:,:,1)),1),1,'last');
+if isempty(firstTrimRow) || isempty(lastTrimRow) || isempty(firstTrimCol) || isempty(lastTrimCol)
+    error('MultiRoiRegistration:NoRasterPixels', ...
+        'Initial SLAP2 template frames contain no finite raster pixels for %s.',fnW);
+end
+trimRows = firstTrimRow:lastTrimRow;
+trimCols = firstTrimCol:lastTrimCol;
 Y = Y(trimRows, trimCols,:); freshness = freshness(trimRows, trimCols,:);
 sz = size(Y);
 

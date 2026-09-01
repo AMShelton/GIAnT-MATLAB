@@ -67,6 +67,19 @@ requiredFunctions = {
     'SILo'
     'setParams'
     'loadStructFromH5'
+    'extractTrial'
+    'processAllTrials_Async'
+    'getActImPeaks'
+    'interpFramesSelectedBatch'
+    'interpFrameTranslationChannels'
+    'xcorr2_nans_weighted_fast'
+    'Fast_BigTiff_Write'
+    'slap2.Slap2DataFile'
+    'fmincon'
+    'lsqlin'
+    'imgaussfilt'
+    'medfilt1'
+    'prctile'
 };
 
 for i = 1:numel(requiredFunctions)

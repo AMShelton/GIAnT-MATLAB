@@ -23,8 +23,16 @@ peakExclusionSE = ones(2*minPeakDistance - 1);
 peakFunc = @gaussianPeaksIntegrated;
 ampScale = 1 ./ 0.75;
 
-mu_bg = median(actIM,'all','omitmissing');
-sigma_bg = mad(actIM(~isnan(actIM)),1,'all') ./ 0.6741891400433162;
+thetaf = zeros(0,4);
+finiteAct = actIM(isfinite(actIM));
+if isempty(finiteAct)
+    return
+end
+mu_bg = median(finiteAct,'omitmissing');
+sigma_bg = mad(finiteAct,1,'all') ./ 0.6741891400433162;
+if ~isfinite(mu_bg) || ~isfinite(sigma_bg) || sigma_bg <= 0
+    return
+end
 peak_thresh = mu_bg + peakth * sigma_bg;
 
 opts = optimset('MaxFunEvals',5000,'Display','off');
@@ -32,7 +40,6 @@ opts = optimset('MaxFunEvals',5000,'Display','off');
 explored = actIM .* ~exclusionMask;
 pTmp = ordfilt2(explored, 8, ones(3)) > peak_thresh & ...
        explored == ordfilt2(explored, 9, ones(3));
-thetaf = zeros(0,4);
 pLocs = zeros(0,2);
 
 if sum(pTmp(:))

@@ -67,13 +67,20 @@ function [meanIM, IMc, aData, peaks, discardFrames] = ...
     try
         [IMc, peaks] = localizeSources_vIM(IM, vSource, params);
     catch ME
-        % Preserve existing edge-artifact retry behavior.
+        % Preserve the legacy one-time edge-artifact retry. If the retry also
+        % fails, retain both errors so parallel-worker reports show the real
+        % original failure rather than only the second exception.
         IM([1 end],:,:) = nan;
         IM(:,[1 end],:) = nan;
-        [IMc, peaks] = localizeSources_vIM(IM, vSource, params);
-        warning('loadAndProcessTrialAsync:LocalizationRetry', ...
-            'Localization succeeded after masking image edges. Initial error: %s', ...
-            ME.message);
+        try
+            [IMc, peaks] = localizeSources_vIM(IM, vSource, params);
+            warning('loadAndProcessTrialAsync:LocalizationRetry', ...
+                'Localization succeeded after masking image edges. Initial error: %s', ...
+                ME.message);
+        catch ME2
+            ME2 = addCause(ME2,ME);
+            rethrow(ME2);
+        end
     end
 end
 
