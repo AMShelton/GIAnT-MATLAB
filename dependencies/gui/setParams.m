@@ -26,7 +26,7 @@ switch fnName
         tooltips.sourceDetectionMethod = [ ...
             'Source detection backend. "silo" uses native GIAnT/SILo peak ' ...
             'detection; "summarize_loco" uses the legacy summarize_LoCo-compatible detector.'];
-        tooltips.__choices.sourceDetectionMethod = {'silo', 'summarize_loco'};
+        tooltips.choiceLists.sourceDetectionMethod = {'silo', 'summarize_loco'};
 
         % summarize_LoCo-specific density cap. The authoritative historical
         % default is not defined in the supplied summarize_LoCo.m itself, so do

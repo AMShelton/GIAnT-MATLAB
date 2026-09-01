@@ -263,16 +263,16 @@ waitfor(handles.F);
     function choices = getChoices(n)
         choices = {};
         if ~isstruct(tooltips) || ~isfield(tooltips, '__choices') || ...
-                ~isstruct(tooltips.__choices)
+                ~isstruct(tooltips.choiceLists)
             return
         end
 
         fieldName = optNames{n};
-        if ~isfield(tooltips.__choices, fieldName)
+        if ~isfield(tooltips.choiceLists, fieldName)
             return
         end
 
-        choices = tooltips.__choices.(fieldName);
+        choices = tooltips.choiceLists.(fieldName);
         if isstring(choices)
             choices = cellstr(choices);
         elseif ischar(choices)
