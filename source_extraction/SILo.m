@@ -1,4 +1,25 @@
 function params = SILo(dr_or_pathToTrialTable, paramsIn)
+% Selectable source-detection controls are handled locally so existing
+% setParams('SILo', ...) behavior remains backward compatible.
+requestedSourceDetectionMethod = 'silo';
+requestedMaxSynapseDensity = [];
+if nargin > 1
+    tmpParamsIn = paramsIn;
+    if ischar(tmpParamsIn) || (isstring(tmpParamsIn) && isscalar(tmpParamsIn))
+        tmpParamsIn = jsondecode(char(tmpParamsIn));
+    end
+    if isstruct(tmpParamsIn)
+        if isfield(tmpParamsIn, 'sourceDetectionMethod')
+            requestedSourceDetectionMethod = tmpParamsIn.sourceDetectionMethod;
+            tmpParamsIn = rmfield(tmpParamsIn, 'sourceDetectionMethod');
+        end
+        if isfield(tmpParamsIn, 'maxSynapseDensity')
+            requestedMaxSynapseDensity = tmpParamsIn.maxSynapseDensity;
+            tmpParamsIn = rmfield(tmpParamsIn, 'maxSynapseDensity');
+        end
+        paramsIn = tmpParamsIn;
+    end
+end
 %PARAMETER SETTING
 if nargin>1
     if ischar(paramsIn)  % Parse JSON String to Structure
@@ -7,6 +28,23 @@ if nargin>1
     params = setParams('SILo', paramsIn);
 else
     params = setParams('SILo');
+end
+params.sourceDetectionMethod = lower(strrep(char(requestedSourceDetectionMethod), '-', '_'));
+if any(strcmp(params.sourceDetectionMethod, {'summarizeloco','loco'}))
+    params.sourceDetectionMethod = 'summarize_loco';
+end
+if ~any(strcmp(params.sourceDetectionMethod, {'silo','summarize_loco'}))
+    error('SILo:UnknownSourceDetectionMethod', ...
+        'sourceDetectionMethod must be "silo" or "summarize_loco".');
+end
+if ~isempty(requestedMaxSynapseDensity)
+    params.maxSynapseDensity = requestedMaxSynapseDensity;
+end
+% Keep stable copies because setParamsExtractTrial may normalize params later.
+resolvedSourceDetectionMethod = params.sourceDetectionMethod;
+resolvedMaxSynapseDensity = [];
+if isfield(params, 'maxSynapseDensity')
+    resolvedMaxSynapseDensity = params.maxSynapseDensity;
 end
 % Fixed values; user/GUI/JSON cannot override these in SILo
 params.minBaseline = 0.01;
@@ -112,6 +150,8 @@ for DMDix = nDMDs:-1:1
         exptSummary.Z(DMDix) = nan;
         exptSummary.meanIM{DMDix} = [];
         exptSummary.actIM{DMDix} = [];
+        exptSummary.rawActIM{DMDix} = [];
+        exptSummary.sourceDetectionInfo{DMDix} = struct();
         exptSummary.selPix{DMDix} = [];
         exptSummary.sources{DMDix} = struct('R', [], 'C', [], 'V', []);
         exptSummary.userROIs{DMDix} = [];
@@ -316,54 +356,27 @@ for DMDix = nDMDs:-1:1
     end
     exptSummary.meanIM{DMDix} = mean(meanAligned(:,:,:,validTrials),4, 'omitnan');
 
-    %select sources on aligned activity image
-    actIM = mean(actAligned(:,:,:,validTrials), 4, 'includenan');
-    actMax = max(actIM(:),[],'omitnan');
-    if isfinite(actMax) && actMax > 0
-        actIM = actIM ./ 10^(floor(log10(actMax))-1);
-    end
+    %select source seeds on the aligned activity image using configured backend
+    rawActIM = mean(actAligned(:,:,:,validTrials), 4, 'includenan');
     nanFrac = mean(isnan(actAligned(:,:,:,validTrials)), 4);
-    actIM(nanFrac>params.nanThresh) = nan;
-    medIM = nanmedfilt2(actIM, 5.*[1 1]);
-    actIM = actIM-medIM; %subtract a local baseline
-    exptSummary.actIM{DMDix} = actIM;
-    sz = size(actIM);
-    clear M Mpad tFFT
-
-    %Mask out somata from activity image
-    somaMask = false(size(actIM));
+    % Mask out somata before either backend performs peak selection.
+    somaMask = false(size(rawActIM));
     if ~isempty(ROIs)
         for rix = 1:numel(ROIs(DMDix).roiData)
             if contains(upper(ROIs(DMDix).roiData{rix}.Label), 'SOMA')
-                tmp = logical(ROIs(DMDix).roiData{rix}.mask);
-                nR = min(size(tmp,1),size(somaMask,1));
-                nC = min(size(tmp,2),size(somaMask,2));
-                if nR>0 && nC>0
-                    somaMask(1:nR,1:nC) = somaMask(1:nR,1:nC) | tmp(1:nR,1:nC);
-                end
+                tmp = ROIs(DMDix).roiData{rix}.mask;
+                somaMask(1:size(tmp,1), 1:size(tmp,2)) = ...
+                    somaMask(1:size(tmp,1), 1:size(tmp,2)) | tmp;
             end
         end
     end
-
-    thetaf = getActImPeaks(actIM,params.peakth,somaMask,params.minPeakDistance);
-
-    sources = struct('R', [], 'C', [], 'V', []);
-    totalPix = sum(~isnan(actIM(:)) & ~somaMask(:));
-    if totalPix == 0 || isempty(thetaf)
-        k = 0;
-    else
-        sources.R = round(thetaf(:,2));
-        sources.C = round(thetaf(:,3));
-        sources.V = thetaf(:,1);
-        
-        % prune source seeds that are the same
-        [~, uniqueIx] = unique([sources.R(:) sources.C(:)], 'rows', 'stable');
-        sources.R = sources.R(uniqueIx);
-        sources.C = sources.C(uniqueIx);
-        sources.V = sources.V(uniqueIx);
-        k = length(sources.R);
-    end
-
+    [sources, actIM, detectionInfo] = ...
+        detectSourcesFromActivityImage(rawActIM, nanFrac, somaMask, params);
+    exptSummary.actIM{DMDix} = actIM;
+    exptSummary.rawActIM{DMDix} = rawActIM;
+    exptSummary.sourceDetectionInfo{DMDix} = detectionInfo;
+    sz = size(actIM);
+    k = numel(sources.R);
     %select regions near synapses, aligned across movies
     selPix = false([sz(1:2) k]);
     params.selRadius = ceil(2*params.dXY);
@@ -390,6 +403,10 @@ for DMDix = nDMDs:-1:1
     %for each file, load high res data and refine
     params.tau_full=params.tau_s*params.analyzeHz;
     params = setParamsExtractTrial(params);
+    params.sourceDetectionMethod = resolvedSourceDetectionMethod;
+    if ~isempty(resolvedMaxSynapseDensity)
+        params.maxSynapseDensity = resolvedMaxSynapseDensity;
+    end
     
     if isempty(ROIs) || isempty(ROIs(DMDix))
         roiData =[];
@@ -457,6 +474,16 @@ trySave(@() saveStructToH5(trialTable, [dr filesep trialTablefn]),          'tri
 trySave(@() saveExperimentSummaryH5(fullfile(savedr, 'experiment_summary.h5'), exptSummary, trialTable), 'experiment_summary');
 if params.savePerTrialSummary
     trySave(@() savePerTrialSummaryH5(fullfile(savedr, 'per_trial_summary.h5'), exptSummary, trialTable), 'per_trial_summary');
+% Save detector-level diagnostics for direct SILo-vs-LoCo comparison.
+benchmarkDiagnostics = struct();
+benchmarkDiagnostics.sourceDetectionMethod = params.sourceDetectionMethod;
+benchmarkDiagnostics.params = params;
+benchmarkDiagnostics.rawActIM = exptSummary.rawActIM;
+benchmarkDiagnostics.detectionIM = exptSummary.actIM;
+benchmarkDiagnostics.sources = exptSummary.sources;
+benchmarkDiagnostics.sourceDetectionInfo = exptSummary.sourceDetectionInfo;
+diagnosticsName = ['source_detection_diagnostics_' params.sourceDetectionMethod '.mat'];
+save(fullfile(savedr, diagnosticsName), 'benchmarkDiagnostics', '-v7.3');
 else
     fprintf(['Skipping per_trial_summary.h5 (savePerTrialSummary=false). ' ...
         'Any existing file is left untouched.\n']);

@@ -523,3 +523,9 @@ while reducing reader calls, allocations, and peak RAM:
 
 Regression tests compare the fast correlation and interpolation kernels
 directly against the original implementations.
+
+
+<!-- GIANT_SOURCE_DETECTION_BACKENDS -->
+## Selectable SILo source-detection backends
+
+`SILo` uses its native detector by default. For benchmarking against the legacy `summarize_LoCo` source-selection rule, pass `sourceDetectionMethod = 'summarize_loco'` and the original `maxSynapseDensity` value. See `docs/SOURCE_DETECTION_BACKENDS.md`.
