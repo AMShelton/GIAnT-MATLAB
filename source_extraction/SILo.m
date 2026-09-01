@@ -40,12 +40,14 @@ end
 if ~isempty(requestedMaxSynapseDensity)
     params.maxSynapseDensity = requestedMaxSynapseDensity;
 end
-% Keep stable copies because setParamsExtractTrial may normalize params later.
+% Keep stable copies because setParamsExtractTrial may normalize/drop
+% SILo-level parameters that are not used directly by extractTrial.
 resolvedSourceDetectionMethod = params.sourceDetectionMethod;
 resolvedMaxSynapseDensity = [];
 if isfield(params, 'maxSynapseDensity')
     resolvedMaxSynapseDensity = params.maxSynapseDensity;
 end
+resolvedSavePerTrialSummary = params.savePerTrialSummary;
 % Fixed values; user/GUI/JSON cannot override these in SILo
 params.minBaseline = 0.01;
 runTimer = tic;
@@ -403,7 +405,10 @@ for DMDix = nDMDs:-1:1
     %for each file, load high res data and refine
     params.tau_full=params.tau_s*params.analyzeHz;
     params = setParamsExtractTrial(params);
+
+    % Restore SILo-level parameters not owned by setParamsExtractTrial.
     params.sourceDetectionMethod = resolvedSourceDetectionMethod;
+    params.savePerTrialSummary = resolvedSavePerTrialSummary;
     if ~isempty(resolvedMaxSynapseDensity)
         params.maxSynapseDensity = resolvedMaxSynapseDensity;
     end
