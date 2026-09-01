@@ -280,7 +280,7 @@ for outerLoop = 1:params.nmfIter
         % The objective returns a cached curvature coefficient in Hinfo.
         % Hessian-vector products reuse that state instead of recomputing
         % the full forward model for every PCG iteration.
-        opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_cached(hinfo, H_est, params.k, v);
+        opts.HessianMultiplyFcn = @(hinfo, v) hessmult_S_cached(hinfo, H_est, params.k, v);
 
         % Call fmincon
         [S_est_new, lossS] = fminconTrustRegionRobust( ...
@@ -336,7 +336,7 @@ for outerLoop = 1:params.nmfIter
         opts.TypicalX = max(H_est, 0.01);
         % Objective function handle (returns [f,g, Hinfo])
         objHs = @(Hs) objfun_Hs_wrapper(Hs, Y_obs, X_est_new, B_est, params.Hfilter, selPix, Finv, params.lambda);
-        opts.HessianMultiplyFcn = @(Hinfo, v, flag) hessmult_Hs_cached(Hinfo, X_est_new, params.Hfilter, selPix, v);
+        opts.HessianMultiplyFcn = @(Hinfo, v) hessmult_Hs_cached(Hinfo, X_est_new, params.Hfilter, selPix, v);
         % Call fmincon
         [Hs_est_new,lossH] = fminconTrustRegionRobust( ...
             objHs,Hs_est,problemH.lb,problemH.ub,opts, ...
@@ -374,7 +374,7 @@ opts.TypicalX = typicalX;
 objS = @(x) objfun_S_wrapper(x, Y_obs, H_est, B_est, params.k, Finv, params.lambda*params.phi);
 
 % Reuse curvature state returned by the objective.
-opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_cached(hinfo, H_est, params.k, v);
+opts.HessianMultiplyFcn = @(hinfo, v) hessmult_S_cached(hinfo, H_est, params.k, v);
 
 % Call fmincon
 [S_est_new, lossS] = fminconTrustRegionRobust( ...
@@ -410,7 +410,7 @@ dFls = H_est\(Y_obs-B_est);
 if ~isempty(Y2) % two-channel recording, process calcium data with same source footprints
     %fit initial baseline
     B2 = max(params.minBaseline, splitFreq(Y2, params.denoiseWindow_samps, ceil(params.baselineWindow_samps/params.denoiseWindow_samps)));
-    opts.HessianMultiplyFcn = @(hinfo, v, flag) hessmult_S_cached(hinfo, H_est, params.k2, v);
+    opts.HessianMultiplyFcn = @(hinfo, v) hessmult_S_cached(hinfo, H_est, params.k2, v);
     opts.MaxIterations = 15;
     LS2 = H_est\(Y2-B2);
     objS = @(x) objfun_S_wrapper(x, Y2, H_est, B2, params.k2, Finv, params.lambda);
@@ -866,10 +866,10 @@ for retryIx = 1:numel(retryLevels)
     optsRetry.MaxPCGIter = max(1,min(double(opts.MaxPCGIter), ...
         double(params.solverRetryPCGIter)));
 
-    % Existing GIAnT HessianMultiplyFcn uses the legacy 3-argument callback
-    % signature accepted by this MATLAB configuration.
-    optsRetry.HessianMultiplyFcn = @(Hinfo,v,flag) ...
-        dampedHessianMultiply(baseHM,Hinfo,v,flag,relDamping);
+    % For trust-region-reflective fmincon, MATLAB calls HessianMultiplyFcn
+    % with exactly two inputs: Hinfo and the vector/matrix to multiply.
+    optsRetry.HessianMultiplyFcn = @(Hinfo,v) ...
+        dampedHessianMultiply(baseHM,Hinfo,v,relDamping);
 
     fprintf(2,'  retry %d/%d: relative damping %.3g, MaxPCGIter=%d\n', ...
         retryIx,numel(retryLevels),relDamping,optsRetry.MaxPCGIter);
@@ -890,10 +890,10 @@ fprintf(2,'GIAnT solver retries exhausted for %s\n',stage);
 rethrow(lastError);
 end
 
-function Hv = dampedHessianMultiply(baseHM,Hinfo,v,flag,relativeDamping)
+function Hv = dampedHessianMultiply(baseHM,Hinfo,v,relativeDamping)
 %DAMPEDHESSIANMULTIPLY Add a small positive diagonal to the Newton model.
 
-Hv = baseHM(Hinfo,v,flag);
+Hv = baseHM(Hinfo,v);
 
 if any(~isfinite(Hv(:)))
     error('GIAnT:NonFiniteHessianProduct', ...
