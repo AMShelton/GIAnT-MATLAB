@@ -4,6 +4,15 @@
 
 <img width="1594" height="300" alt="GIAnT_schematic" src="GIAnT_schematic_horizontal.png" />
 
+## Recent improvements
+
+Recent updates improve performance and robustness for large SLAP2 datasets while preserving the core motion-correction and SILo source models:
+
+* **Faster, lower-memory SLAP2 motion correction** through batched reads, reader reuse, streamlined interpolation/correlation, HDF5 streaming, and improved worker control.
+* **More efficient SILo extraction** using sparse selected-pixel interpolation, bounded high-resolution processing blocks, stage-specific parallelism, and reduced temporary/full-FOV allocations.
+* **Improved robustness and diagnostics** with targeted solver fallbacks, defensive failure handling, runtime profiling, and the option to skip the large `per_trial_summary.h5` output.
+* **Expanded parameter and GUI support** for runtime controls and source-detection configuration while preserving backwards-compatible defaults and presets.
+
 ## Install
 
 ### MATLAB
