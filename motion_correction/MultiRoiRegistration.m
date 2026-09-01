@@ -129,6 +129,7 @@ disp(['Aligning: ' fnW ' of ' [trialTable.datadr filesep fn]])
 fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
 fnAdata = [fnW '_ALIGNMENTDATA.h5'];
 registrationFailed = false;
+alignWallStart = tic;
 
 if ~params.overwriteExisting && exist([mocosavedr filesep fnAdata], 'file') && exist([mocosavedr filesep fnwrite], 'file')
     disp([fnW ' of ' fn ' is already aligned; skipping' newline 'To force realign, pass TRUE as second argument']);
@@ -138,14 +139,20 @@ end
 retry=0;
 while retry<10
     try
-        S2data = slap2.Slap2DataFile([trialTable.datadr filesep fn]);
+        fullDatPath = fullfile(trialTable.datadr,fn);
+        reuseReader = true;
+        if isfield(params,'reuseSlap2Reader')
+            reuseReader = logical(params.reuseSlap2Reader);
+        end
+        tReaderSetup = tic;
+        [S2data,meta,readerCacheHit] = getCachedRegistrationReader(fullDatPath,reuseReader);
+        readerSetupSeconds = toc(tReaderSetup);
         retry = 10;
     catch
         retry = retry+1;
         continue
     end
 end
-meta = loadMetadata([trialTable.datadr filesep fn]);
 linerateHz = 1/meta.linePeriod_s;
 dt = linerateHz/aData.alignHz;
 numChannels = S2data.numChannels;
@@ -164,10 +171,9 @@ if params.isReVolt
         span = fEnd-f0;
         while (fEnd-f0)>(0.4*nSamps*dt)
             frames = round(linspace(f0,fEnd,nSamps));
-            ii = nan(1,nSamps);
-            for fix = 1:nSamps
-                ii(fix) = mean(getImageWrapper(S2data, redChannel, frames(fix), ceil(dt), 1, spTypeFlag), 'all', 'omitnan'); %moving image Ch1
-            end
+            [redFrames,~] = getImagesWrapper(S2data,redChannel,frames,ceil(dt),1,spTypeFlag);
+            redFrames = normalizeImageStack(redFrames,1,nSamps);
+            ii = reshape(mean(redFrames,[1 2 3],'omitnan'),1,[]);
             if isempty(minI)
                 minI = min(ii, [], 'omitnan');
                 maxI = max(ii, [], 'omitnan');
@@ -212,17 +218,18 @@ if nInitFrames==0
     registrationFailed = true;
     return
 end
-% Build the summed registration image directly instead of first storing
-% H x W x channels x frames. For two-channel recordings this removes one
-% full channel-stack from each worker's peak memory. Freshness is taken
-% from channel 1, matching the previous reverse-channel loop.
-for fix = nInitFrames:-1:1
-    [Yframe, freshness(:,:,fix)] = getImageWrapper(S2data, 1, initFrames(fix), ceil(dt), 1, spTypeFlag);
-    for cix = 2:numChannels
-        Yframe = Yframe + getImageWrapper(S2data, cix, initFrames(fix), ceil(dt), 1, spTypeFlag);
-    end
-    Y(:,:,fix) = Yframe;
-end
+% Read all initial-template frames/channels in one Slap2DataReader batch.
+% The summed registration image is identical to the previous per-frame,
+% per-channel getImage loop, but reader/MEX setup is amortized.
+tInitialRead = tic;
+[Yinit,freshness] = getImagesWrapper(S2data,1:numChannels,initFrames,ceil(dt),1,spTypeFlag);
+initialReadSeconds = toc(tInitialRead);
+Yinit = normalizeImageStack(Yinit,numChannels,nInitFrames);
+freshness = normalizeFreshnessStack(freshness,nInitFrames);
+rawImageSize = [size(Yinit,1),size(Yinit,2)];
+
+Y = reshape(sum(Yinit,3),rawImageSize(1),rawImageSize(2),nInitFrames);
+clear Yinit
 
 %make data smaller for alignment
 trimRows = find(~all(isnan(Y(:,:,1)),2), 1, 'first'):find(~all(isnan(Y(:,:,1)),2), 1, 'last');
@@ -232,21 +239,42 @@ sz = size(Y);
 
 R = ones(nInitFrames);
 motion = zeros(2,nInitFrames,nInitFrames);
+tInitialCorr = tic;
 for f1 = 1:nInitFrames
     for f2 = (f1+1):nInitFrames
-        [motion(:,f1,f2), R(f1,f2)] = xcorr2_nans_weighted(Y(:,:,f2), freshness(:,:,f2), Y(:,:,f1), [0 ; 0], 3); 
+        if aData.useFastWeightedXcorr
+            [motion(:,f1,f2),R(f1,f2)] = xcorr2_nans_weighted_fast( ...
+                Y(:,:,f2),freshness(:,:,f2),Y(:,:,f1),[0;0],3);
+        else
+            [motion(:,f1,f2),R(f1,f2)] = xcorr2_nans_weighted( ...
+                Y(:,:,f2),freshness(:,:,f2),Y(:,:,f1),[0;0],3);
+        end
         motion(:,f2,f1) = -motion(:,f1,f2);
         R(f2,f1) = R(f1,f2);
     end
 end
+initialCorrSeconds = toc(tInitialCorr);
 [bestR, maxind] = max(median(R));
 frameInds = find(R(:,maxind)>=bestR);
 
 assert(aData.maxshift==round(aData.maxshift), 'params.maxshift must be an integer');
 [viewR, viewC] = ndgrid((1:(sz(1)+2*aData.maxshift))-aData.maxshift, (1:(sz(2)+2*aData.maxshift))-aData.maxshift); %view matrices for interpolation
-tFrames = nan(2*aData.maxshift+sz(1), 2*aData.maxshift+sz(2), numel(frameInds));
+tFrames = nan(2*aData.maxshift+sz(1),2*aData.maxshift+sz(2),numel(frameInds));
+baseViewC = viewC(1,:);
+baseViewR = viewR(:,1);
 for fix = 1:numel(frameInds)
-    tFrames(:,:,fix) = interpFrame(Y(:,:,frameInds(fix)), viewC(1,:)-motion(2,frameInds(fix), maxind), viewR(:,1)-motion(1,frameInds(fix), maxind), freshness(:,:,frameInds(fix)));
+    if aData.useFastInterpolation
+        tFrames(:,:,fix) = interpFrameTranslationChannels( ...
+            Y(:,:,frameInds(fix)),baseViewC,baseViewR, ...
+            -motion(2,frameInds(fix),maxind), ...
+            -motion(1,frameInds(fix),maxind),freshness(:,:,frameInds(fix)));
+    else
+        tFrames(:,:,fix) = interpFrame( ...
+            Y(:,:,frameInds(fix)), ...
+            baseViewC-motion(2,frameInds(fix),maxind), ...
+            baseViewR-motion(1,frameInds(fix),maxind), ...
+            freshness(:,:,frameInds(fix)));
+    end
 end
 tSum = sum(tFrames,3, 'omitnan');
 tN = sum(~isnan(tFrames),3);
@@ -288,10 +316,27 @@ initR = 0; initC = 0;
 DSframes = ceil(firstLine:dt:lastLine);
 nDSframes= length(DSframes); %number of downsampled frames
 
-%for spatial downsampling, used to calculate alignment quality and for quicker visualization
+% For spatial downsampling, used to calculate alignment quality. Keep only
+% one ~10 s QC chunk in RAM instead of the entire downsampled movie.
 dsTimes = 2;
 dsSz = floor(size(template)./(2^dsTimes));
-A_ds = nan([dsSz nDSframes],'single');
+qcOffset = 10;
+% Preserve the legacy chunk-edge construction exactly. Note that the
+% historical code used N edge points and therefore N-1 actual chunks.
+nQCEdgePoints = ceil(nDSframes./(aData.alignHz*10));
+qcChunkEdges = round(linspace(1,nDSframes+1,nQCEdgePoints));
+nQCChunks = max(0,numel(qcChunkEdges)-1);
+recNegErr = nan(1,nDSframes);
+qcChunkIx = 1;
+if nQCChunks>0
+    qcChunkStart = qcChunkEdges(1);
+    qcChunkEnd = qcChunkEdges(2)-1;
+    A_ds_chunk = nan([dsSz,qcChunkEnd-qcChunkStart+1],'single');
+else
+    qcChunkStart = [];
+    qcChunkEnd = [];
+    A_ds_chunk = [];
+end
 
 motionDSr = nan(1,nDSframes);
 motionDSc = nan(1,nDSframes); %matrices to store the inferred motion
@@ -358,79 +403,144 @@ varFacBuffer = nan(szOut(1), szOut(2), varFacBufferFrames, 'single');
 varFacBufferCount = 0;
 varFacBufferStart = 1;
 
-%T = T0(aData.maxshift + (1:sz(1)), aData.maxshift+(1:sz(2)));
+% Registration read batching. The adaptive template remains strictly
+% sequential; only raw image reconstruction is batched.
+requestedRegistrationBlockFrames = max(1,round(aData.registrationBlockFrames));
+registrationBlockFrames = requestedRegistrationBlockFrames;
+if isfinite(aData.registrationBlockMemoryGB) && aData.registrationBlockMemoryGB>0
+    rawPxEstimate = max(1,double(rawImageSize(1))*double(rawImageSize(2)));
+    % Conservative double-precision estimate: channels + freshness + 35% overhead.
+    bytesPerFrameEstimate = 8*rawPxEstimate*(numChannels+1)*1.35;
+    memoryBytes = double(aData.registrationBlockMemoryGB)*(1024^3);
+    maxFramesByMemory = max(1,floor(memoryBytes/bytesPerFrameEstimate));
+    registrationBlockFrames = min(registrationBlockFrames,maxFramesByMemory);
+end
+
+mainReadSeconds = 0;
+mainCorrSeconds = 0;
+mainInterpSeconds = 0;
+templateUpdateSeconds = 0;
+tiffWriteSeconds = 0;
+h5WriteSeconds = 0;
+qcSeconds = 0;
+T0Valid = ~isnan(T0);
+
 disp('Registering:');
 try
-    for DSframeIx = 1:nDSframes
-        [M1, freshness] = getImageWrapper(S2data, 1, DSframes(DSframeIx), ceil(dt), 1, spTypeFlag); %moving image Ch1
-        M1 = M1(trimRows, trimCols);
-        freshness = freshness(trimRows, trimCols); %image freshness, the effective number of samples that contribute to the measurement
-        if numChannels==2
-            M2 =  getImageWrapper(S2data, 2, DSframes(DSframeIx), ceil(dt), 1, spTypeFlag); %moving image Ch2
-            M2 = M2(trimRows, trimCols);
-            M = sqrt(M1+M2);
-        else
-            M = sqrt(M1);
-        end
+    for blockStart = 1:registrationBlockFrames:nDSframes
+        blockIxs = blockStart:min(nDSframes,blockStart+registrationBlockFrames-1);
 
-        if ~mod(DSframeIx, 1000)
+        tRead = tic;
+        [Yblock,freshBlock] = getImagesWrapper( ...
+            S2data,1:numChannels,DSframes(blockIxs),ceil(dt),1,spTypeFlag);
+        mainReadSeconds = mainReadSeconds + toc(tRead);
+
+        Yblock = normalizeImageStack(Yblock,numChannels,numel(blockIxs));
+        freshBlock = normalizeFreshnessStack(freshBlock,numel(blockIxs));
+        Yblock = Yblock(trimRows,trimCols,:,:);
+        freshBlock = freshBlock(trimRows,trimCols,:);
+
+        for blockLocalIx = 1:numel(blockIxs)
+            DSframeIx = blockIxs(blockLocalIx);
+            Mchannels = Yblock(:,:,:,blockLocalIx);
+            M1 = Mchannels(:,:,1);
+            freshness = freshBlock(:,:,blockLocalIx);
+            if numChannels==2
+                M2 = Mchannels(:,:,2);
+                M = sqrt(M1+M2);
+            else
+                M = sqrt(M1);
+            end
+
+        if ~mod(DSframeIx,1000)
             disp([int2str(DSframeIx) ' of ' int2str(nDSframes)]);
         end
 
+        tCorr = tic;
         if params.refStackTemplate
-            T = T0(aData.maxshift-initR + (1:sz(1)), aData.maxshift-initC+(1:sz(2)),:);
-            [motOutput, corrCoeff] = xcorr2_nans3d(M, T, [0 ; 0], aData.clipShift);
+            T = T0(aData.maxshift-initR + (1:sz(1)),aData.maxshift-initC+(1:sz(2)),:);
+            [motOutput,corrCoeff] = xcorr2_nans3d(M,T,[0;0],aData.clipShift);
             motionDSz(DSframeIx) = motOutput(3);
         else
-            % Mean of T0 and adaptive template without allocating an
-            % H x W x 2 temporary via cat(...).
-            Ttmp = T0;
-            bothValid = ~isnan(T0) & ~isnan(template);
-            Ttmp(bothValid) = (T0(bothValid) + template(bothValid))/2;
-            templateOnly = isnan(T0) & ~isnan(template);
-            Ttmp(templateOnly) = template(templateOnly);
+            % Compose only the currently-used crop of the static and
+            % adaptive templates; avoid copying the full padded template.
+            tRows = aData.maxshift-initR + (1:sz(1));
+            tCols = aData.maxshift-initC + (1:sz(2));
+            T0crop = T0(tRows,tCols);
+            adaptiveCrop = template(tRows,tCols);
+            T = T0crop;
+            t0ValidCrop = T0Valid(tRows,tCols);
+            adaptiveValid = ~isnan(adaptiveCrop);
+            bothValid = t0ValidCrop & adaptiveValid;
+            T(bothValid) = (T0crop(bothValid)+adaptiveCrop(bothValid))/2;
+            templateOnly = ~t0ValidCrop & adaptiveValid;
+            T(templateOnly) = adaptiveCrop(templateOnly);
 
-            T = Ttmp(aData.maxshift-initR + (1:sz(1)), aData.maxshift-initC+(1:sz(2)));
-
-            % T is already recentered with the previous-frame estimate.
-            % Search only clipShift around that prediction. The previous
-            % code expanded dShift with ABSOLUTE displacement, making the
-            % correlation cost grow quadratically as the recording drifted.
-            [motOutput, corrCoeff] = xcorr2_nans_weighted( ...
-                M, freshness, T, [0 ; 0], aData.clipShift);
+            if aData.useFastWeightedXcorr
+                [motOutput,corrCoeff] = xcorr2_nans_weighted_fast( ...
+                    M,freshness,T,[0;0],aData.clipShift);
+            else
+                [motOutput,corrCoeff] = xcorr2_nans_weighted( ...
+                    M,freshness,T,[0;0],aData.clipShift);
+            end
         end
+        mainCorrSeconds = mainCorrSeconds + toc(tCorr);
 
         motionDSr(DSframeIx) = initR+motOutput(1);
         motionDSc(DSframeIx) = initC+motOutput(2);
         aErrorDS(DSframeIx) = 1-corrCoeff^2;
 
-        %compute aligned image and variance factor
-        [A1, Vframe] = interpFrame(M1, ...
-            viewC(1,:)+motionDSc(DSframeIx), ...
-            viewR(:,1)+motionDSr(DSframeIx), freshness);
+        % Compute aligned image(s) and variance factor. For two-channel
+        % recordings the fast path builds interpolation indices/freshness
+        % weights once and applies them to both channels.
+        tInterp = tic;
+        if aData.useFastInterpolation
+            if numChannels==2
+                [Aall,Vframe] = interpFrameTranslationChannels( ...
+                    Mchannels,baseViewC,baseViewR, ...
+                    motionDSc(DSframeIx),motionDSr(DSframeIx),freshness);
+                A1 = Aall(:,:,1);
+                A2 = Aall(:,:,2);
+            else
+                [A1,Vframe] = interpFrameTranslationChannels( ...
+                    M1,baseViewC,baseViewR, ...
+                    motionDSc(DSframeIx),motionDSr(DSframeIx),freshness);
+            end
+        else
+            [A1,Vframe] = interpFrame(M1, ...
+                baseViewC+motionDSc(DSframeIx), ...
+                baseViewR+motionDSr(DSframeIx),freshness);
+            if numChannels==2
+                A2 = interpFrame(M2, ...
+                    baseViewC+motionDSc(DSframeIx), ...
+                    baseViewR+motionDSr(DSframeIx),freshness);
+            end
+        end
+        mainInterpSeconds = mainInterpSeconds + toc(tInterp);
 
-        % Buffer a few variance-factor frames, then stream them directly to
-        % HDF5. Assignment to single preserves the previous varFacDS type.
         varFacBufferCount = varFacBufferCount + 1;
         varFacBuffer(:,:,varFacBufferCount) = single(Vframe);
         if varFacBufferCount == varFacBufferFrames || DSframeIx == nDSframes
-            h5write(partialAdataPath, '/slap2/varFacDS', ...
+            tH5 = tic;
+            h5write(partialAdataPath,'/slap2/varFacDS', ...
                 varFacBuffer(:,:,1:varFacBufferCount), ...
-                [1, 1, varFacBufferStart], ...
-                [szOut(1), szOut(2), varFacBufferCount]);
+                [1,1,varFacBufferStart], ...
+                [szOut(1),szOut(2),varFacBufferCount]);
+            h5WriteSeconds = h5WriteSeconds + toc(tH5);
             varFacBufferStart = DSframeIx + 1;
             varFacBufferCount = 0;
         end
         clear Vframe
 
+        tTif = tic;
         fTIF.WriteIMG(single(A1));
         if numChannels==2
-            A2 = interpFrame(M2, viewC(1,:)+motionDSc(DSframeIx), viewR(:,1)+motionDSr(DSframeIx), freshness);%interp2(1:sz(2), 1:sz(1), M2,viewC+motionDSc(DSframeIx), viewR+motionDSr(DSframeIx), 'linear', nan);
             fTIF.WriteIMG(single(A2));
-            A =A1+A2;
+            A = A1+A2;
         else
             A = A1;
         end
+        tiffWriteSeconds = tiffWriteSeconds + toc(tTif);
 
         a1 = single(A1); m1 = ~isnan(a1); a1(~m1) = 0;
         sumMeanIM(1,:,:) = sumMeanIM(1,:,:) + reshape(a1, [1, szOut(1), szOut(2)]);
@@ -441,24 +551,45 @@ try
             nMeanIM(2,:,:) = nMeanIM(2,:,:) + reshape(single(m2), [1, szOut(1), szOut(2)]);
         end
 
-        %downsample in space
+        % Downsample in space and compute registration QC one ~10 s chunk
+        % at a time instead of retaining A_ds for the full acquisition.
+        tQc = tic;
         dsTmp = A;
         for dsIx = 1:dsTimes
-            dsTmp = dsTmp(1:2:2*floor(end/2), 1:2:2*floor(end/2)) + dsTmp(1:2:2*floor(end/2), 2:2:2*floor(end/2)) + dsTmp(2:2:2*floor(end/2), 1:2:2*floor(end/2)) + dsTmp(2:2:2*floor(end/2), 2:2:2*floor(end/2));
+            dsTmp = dsTmp(1:2:2*floor(end/2),1:2:2*floor(end/2)) + ...
+                    dsTmp(1:2:2*floor(end/2),2:2:2*floor(end/2)) + ...
+                    dsTmp(2:2:2*floor(end/2),1:2:2*floor(end/2)) + ...
+                    dsTmp(2:2:2*floor(end/2),2:2:2*floor(end/2));
         end
-        A_ds(:,:,DSframeIx) = dsTmp;
+        if nQCChunks>0
+            A_ds_chunk(:,:,DSframeIx-qcChunkStart+1) = single(dsTmp);
+            if DSframeIx == qcChunkEnd
+                recNegErr(qcChunkStart:qcChunkEnd) = ...
+                    computeRecNegErrChunk(A_ds_chunk,qcOffset);
+                qcChunkIx = qcChunkIx+1;
+                if qcChunkIx <= nQCChunks
+                    qcChunkStart = qcChunkEdges(qcChunkIx);
+                    qcChunkEnd = qcChunkEdges(qcChunkIx+1)-1;
+                    A_ds_chunk = nan([dsSz,qcChunkEnd-qcChunkStart+1],'single');
+                end
+            end
+        end
+        qcSeconds = qcSeconds + toc(tQc);
 
+        tTemplate = tic;
         sel = ~isnan(A);
         tSum(sel) = tSum(sel)+A(sel);
-        % tSum = tSum*(1-aData.alpha);
-        % tN = tN*(1-aData.alpha);
         tN(sel) = tN(sel)+1;
-        template(sel) = sqrt(tSum(sel)./tN(sel));
-        template(tN<minSamps) = nan;
+        ready = sel & tN>=minSamps;
+        template(ready) = sqrt(tSum(ready)./tN(ready));
+        notReady = sel & tN<minSamps;
+        template(notReady) = nan;
+        templateUpdateSeconds = templateUpdateSeconds + toc(tTemplate);
 
-        initR = max(-aData.maxshift,min(aData.maxshift, round(motionDSr(DSframeIx))));
+        initR = max(-aData.maxshift,min(aData.maxshift,round(motionDSr(DSframeIx))));
         initC = max(-aData.maxshift,min(aData.maxshift,round(motionDSc(DSframeIx))));
-    end
+        end % frames within reader block
+    end % reader blocks
 catch ME
     disp(ME);
     aData.registrationFailed = true;
@@ -483,21 +614,18 @@ fTIF.close;
 meanIM = sumMeanIM ./ max(nMeanIM, single(1));
 meanIM(nMeanIM < single(1)) = nan;
 
-%Compute alignment error
-offset = 10;
-recNegErr = nan(1,nDSframes);
-nChunks = ceil(nDSframes./(aData.alignHz*10)); %align 10 seconds at a time
-chunkEdges = round(linspace(1, nDSframes+1, nChunks));
-for chunkIx = 1:length(chunkEdges)-1
-    t_ixs = chunkEdges(chunkIx):chunkEdges(chunkIx+1)-1;
-    chunkData = A_ds(:,:,t_ixs);
-    template = median(chunkData, 3, 'omitmissing');
-    nanFrac = mean(isnan(chunkData), 3);
-    template(nanFrac>0.2) = nan;
-    template_gamma = sqrt(max(0,template)+offset);
-    % chunkData*0: broadcast 2D template to 3D without repmat; nan where frame is nan
-    recNegErr(1,t_ixs) = sqrt(squeeze(mean(max(0, (template-chunkData)./template_gamma).^2, [1 2], 'omitnan')./mean(max(0, (template./template_gamma).^2 + chunkData * 0, 'includenan'), [1 2], 'omitnan')));
-end
+runtimeTotalSeconds = readerSetupSeconds + initialReadSeconds + initialCorrSeconds + ...
+    mainReadSeconds + mainCorrSeconds + mainInterpSeconds + ...
+    templateUpdateSeconds + tiffWriteSeconds + h5WriteSeconds + qcSeconds;
+registrationWallSeconds = toc(alignWallStart);
+
+fprintf(['Registration timing %s: wall %.1f min; reader setup %.1f s (%s); init read %.1f s; ' ...
+    'init corr %.1f s; getImages %.1f s; xcorr %.1f s; interp %.1f s; ' ...
+    'template %.1f s; TIFF %.1f s; H5 %.1f s; QC %.1f s; block %d frames\n'], ...
+    fnW,registrationWallSeconds/60,readerSetupSeconds,ternary(readerCacheHit,'cache hit','new reader'), ...
+    initialReadSeconds,initialCorrSeconds,mainReadSeconds,mainCorrSeconds, ...
+    mainInterpSeconds,templateUpdateSeconds,tiffWriteSeconds,h5WriteSeconds, ...
+    qcSeconds,registrationBlockFrames);
 
 if std(motionDSc)>1.5 || std(motionDSr)>1.5
     aData.registrationFailed = true;
@@ -550,6 +678,19 @@ appendNumericDataset(partialAdataPath, '/motionDSc', aData.motionDSc);
 appendNumericDataset(partialAdataPath, '/motionDSr', aData.motionDSr);
 appendNumericDataset(partialAdataPath, '/recNegErr', aData.recNegErr);
 appendNumericDataset(partialAdataPath, '/registrationFailed', aData.registrationFailed);
+appendNumericDataset(partialAdataPath, '/runtime/readerSetup_s', readerSetupSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/initialRead_s', initialReadSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/initialCorrelation_s', initialCorrSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/getImages_s', mainReadSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/correlation_s', mainCorrSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/interpolation_s', mainInterpSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/templateUpdate_s', templateUpdateSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/tiffWrite_s', tiffWriteSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/h5Write_s', h5WriteSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/qc_s', qcSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/profiledTotal_s', runtimeTotalSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/wall_s', registrationWallSeconds);
+appendNumericDataset(partialAdataPath, '/runtime/registrationBlockFrames', registrationBlockFrames);
 appendNumericDataset(partialAdataPath, '/slap2/onlineMotionXshift', aData.onlineXshift);
 appendNumericDataset(partialAdataPath, '/slap2/onlineMotionYshift', aData.onlineYshift);
 appendNumericDataset(partialAdataPath, '/slap2/onlineMotionZshift', aData.onlineZshift);
@@ -629,8 +770,112 @@ end
 
 function [IM, freshness] = getImageWrapper(S2data, channel, frames, dt, zPlane, spTypeFlag)
 if spTypeFlag
-    [IM,~,freshness] = S2data.getImage(channel, frames, dt, zPlane, spTypeFlag);
+    [IM,~,freshness] = S2data.getImage(channel,frames,dt,zPlane,spTypeFlag);
 else
-    [IM,~,freshness] = S2data.getImage(channel, frames, dt, zPlane); %for backward compatibility
+    [IM,~,freshness] = S2data.getImage(channel,frames,dt,zPlane);
+end
+end
+
+function [IM,freshness] = getImagesWrapper(S2data,channels,frames,dt,zPlane,spTypeFlag)
+%GETIMAGESWRAPPER Batched equivalent of getImageWrapper.
+if spTypeFlag
+    [IM,freshness] = S2data.getImages(channels,frames,dt,zPlane,spTypeFlag);
+else
+    [IM,freshness] = S2data.getImages(channels,frames,dt,zPlane);
+end
+end
+
+function Y = normalizeImageStack(Y,nChannels,nFrames)
+%NORMALIZEIMAGESTACK Ensure getImages output is H x W x C x T.
+h = size(Y,1);
+w = size(Y,2);
+nExpected = h*w*nChannels*nFrames;
+if numel(Y) ~= nExpected
+    error('MultiRoiRegistration:UnexpectedGetImagesShape', ...
+        'getImages returned %d elements; expected H*W*%d*%d.', ...
+        numel(Y),nChannels,nFrames);
+end
+Y = reshape(Y,h,w,nChannels,nFrames);
+end
+
+function F = normalizeFreshnessStack(F,nFrames)
+%NORMALIZEFRESHNESSSTACK Ensure freshness is H x W x T.
+h = size(F,1);
+w = size(F,2);
+if numel(F) ~= h*w*nFrames
+    error('MultiRoiRegistration:UnexpectedFreshnessShape', ...
+        'Freshness returned %d elements; expected H*W*%d.',numel(F),nFrames);
+end
+F = reshape(F,h,w,nFrames);
+end
+
+function [S2data,meta,cacheHit] = getCachedRegistrationReader(fullDatPath,reuseReader)
+%GETCACHEDREGISTRATIONREADER Worker-local reader/metadata cache.
+persistent readerMap metadataMap
+if isempty(readerMap)
+    readerMap = containers.Map('KeyType','char','ValueType','any');
+    metadataMap = containers.Map('KeyType','char','ValueType','any');
+end
+
+fullDatPath = char(string(fullDatPath));
+if ispc
+    key = lower(strrep(fullDatPath,'/','\'));
+else
+    key = fullDatPath;
+end
+
+if ~reuseReader
+    S2data = slap2.Slap2DataFile(fullDatPath);
+    meta = loadMetadata(fullDatPath);
+    cacheHit = false;
+    return
+end
+
+cacheHit = false;
+S2data = [];
+if exist('slap2.util.getCachedDataFile','file') == 2
+    try
+        [S2data,cacheHit] = slap2.util.getCachedDataFile(fullDatPath);
+    catch
+        S2data = [];
+    end
+end
+
+if isempty(S2data)
+    if isKey(readerMap,key)
+        S2data = readerMap(key);
+        cacheHit = true;
+    else
+        S2data = slap2.Slap2DataFile(fullDatPath);
+        readerMap(key) = S2data;
+    end
+end
+
+if isKey(metadataMap,key)
+    meta = metadataMap(key);
+else
+    meta = loadMetadata(fullDatPath);
+    metadataMap(key) = meta;
+end
+end
+
+function rec = computeRecNegErrChunk(chunkData,offset)
+%COMPUTERECNEGERRCHUNK Exact per-chunk QC calculation from legacy code.
+chunkTemplate = median(chunkData,3,'omitmissing');
+nanFrac = mean(isnan(chunkData),3);
+chunkTemplate(nanFrac>0.2) = nan;
+templateGamma = sqrt(max(0,chunkTemplate)+offset);
+rec = sqrt(squeeze(mean(max(0,(chunkTemplate-chunkData)./templateGamma).^2, ...
+    [1 2],'omitnan') ./ ...
+    mean(max(0,(chunkTemplate./templateGamma).^2 + chunkData*0, ...
+    'includenan'),[1 2],'omitnan')));
+rec = reshape(rec,1,[]);
+end
+
+function out = ternary(condition,trueValue,falseValue)
+if condition
+    out = trueValue;
+else
+    out = falseValue;
 end
 end

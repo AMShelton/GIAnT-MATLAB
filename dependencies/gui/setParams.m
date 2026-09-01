@@ -35,6 +35,9 @@ switch fnName
         params.selectedInterpBatchFrames = 64; tooltips.selectedInterpBatchFrames = 'Performance only: number of frames vectorized together during sparse motion interpolation.';
         params.reuseSlap2Reader = true; tooltips.reuseSlap2Reader = 'Performance only: reuse one Slap2DataFile/metadata object across pseudo-trials from the same DAT file.';
         params.savePerTrialSummary = true; tooltips.savePerTrialSummary = 'Save per_trial_summary.h5. Disable to avoid the very large full-FOV per-trial footprint file.';
+        params.solverRobustFallback = true; tooltips.solverRobustFallback = 'Retry only the rare MATLAB trdog/quad1d trust-region numerical failure with a damped Hessian approximation.';
+        params.solverRetryDamping = [1e-8 1e-6 1e-4]; tooltips.solverRetryDamping = 'Relative Hessian diagonal damping levels tried only after a trdog/quad1d failure.';
+        params.solverRetryPCGIter = 3; tooltips.solverRetryPCGIter = 'Max PCG iterations used only for a trdog/quad1d solver retry.';
     case 'MultiRoiRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshift = 40; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -46,6 +49,11 @@ switch fnName
         params.isReVolt = false; tooltips.isReVolt = 'select true for recordings with simultaneous red 1P imaging';
         params.includeIntegrationROIs = false; tooltips.includeIntegrationROIs = 'Use integration ROIs for alignment and TIFF generation?';
         params.varFacChunkXY = 128; tooltips.varFacChunkXY = 'Performance only: spatial HDF5 chunk size for varFacDS. 128 avoids a SILo rechunk pass.';
+        params.registrationBlockFrames = 128; tooltips.registrationBlockFrames = 'Performance only: requested number of 80-Hz frames reconstructed per Slap2DataReader getImages block.';
+        params.registrationBlockMemoryGB = 4; tooltips.registrationBlockMemoryGB = 'Performance only: per-worker RAM budget for one batched registration read; registrationBlockFrames is capped automatically.';
+        params.reuseSlap2Reader = true; tooltips.reuseSlap2Reader = 'Performance only: reuse a worker-local Slap2DataFile and parsed metadata across pseudo-trials from the same DAT.';
+        params.useFastWeightedXcorr = true; tooltips.useFastWeightedXcorr = 'Use allocation-efficient weighted local correlation with the same correlation statistic and subpixel peak fit.';
+        params.useFastInterpolation = true; tooltips.useFastInterpolation = 'Use translation-specialized bilinear interpolation; for two channels, coordinate/freshness lookup is shared.';
     case 'BandRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshiftXY = 25; tooltips.maxshift = 'Maximum frame offset,in pixels';
@@ -129,6 +137,35 @@ if strcmp(fnName, 'MultiRoiRegistration')
     validateattributes(params.varFacChunkXY, {'numeric'}, ...
         {'scalar','real','finite','positive'}, mfilename, 'varFacChunkXY');
     params.varFacChunkXY = max(16,round(double(params.varFacChunkXY)));
+
+    if ~isfield(params,'registrationBlockFrames') || isempty(params.registrationBlockFrames)
+        params.registrationBlockFrames = 128;
+    end
+    validateattributes(params.registrationBlockFrames, {'numeric'}, ...
+        {'scalar','real','finite','positive'}, mfilename, 'registrationBlockFrames');
+    params.registrationBlockFrames = max(1,round(double(params.registrationBlockFrames)));
+
+    if ~isfield(params,'registrationBlockMemoryGB') || isempty(params.registrationBlockMemoryGB)
+        params.registrationBlockMemoryGB = 4;
+    end
+    validateattributes(params.registrationBlockMemoryGB, {'numeric'}, ...
+        {'scalar','real','finite','positive'}, mfilename, 'registrationBlockMemoryGB');
+    params.registrationBlockMemoryGB = double(params.registrationBlockMemoryGB);
+
+    if ~isfield(params,'reuseSlap2Reader') || isempty(params.reuseSlap2Reader)
+        params.reuseSlap2Reader = true;
+    end
+    params.reuseSlap2Reader = logical(params.reuseSlap2Reader);
+
+    if ~isfield(params,'useFastWeightedXcorr') || isempty(params.useFastWeightedXcorr)
+        params.useFastWeightedXcorr = true;
+    end
+    params.useFastWeightedXcorr = logical(params.useFastWeightedXcorr);
+
+    if ~isfield(params,'useFastInterpolation') || isempty(params.useFastInterpolation)
+        params.useFastInterpolation = true;
+    end
+    params.useFastInterpolation = logical(params.useFastInterpolation);
     return
 end
 
@@ -210,5 +247,24 @@ if ~isfield(params, 'savePerTrialSummary') || isempty(params.savePerTrialSummary
     params.savePerTrialSummary = true;
 end
 params.savePerTrialSummary = logical(params.savePerTrialSummary);
+
+if ~isfield(params, 'solverRobustFallback') || isempty(params.solverRobustFallback)
+    params.solverRobustFallback = true;
+end
+params.solverRobustFallback = logical(params.solverRobustFallback);
+
+if ~isfield(params, 'solverRetryDamping') || isempty(params.solverRetryDamping)
+    params.solverRetryDamping = [1e-8 1e-6 1e-4];
+end
+validateattributes(params.solverRetryDamping, {'numeric'}, ...
+    {'vector','real','finite','positive'}, mfilename, 'solverRetryDamping');
+params.solverRetryDamping = double(params.solverRetryDamping(:).');
+
+if ~isfield(params, 'solverRetryPCGIter') || isempty(params.solverRetryPCGIter)
+    params.solverRetryPCGIter = 3;
+end
+validateattributes(params.solverRetryPCGIter, {'numeric'}, ...
+    {'scalar','real','finite','positive'}, mfilename, 'solverRetryPCGIter');
+params.solverRetryPCGIter = max(1,round(double(params.solverRetryPCGIter)));
 end
 

@@ -492,3 +492,34 @@ SLAP2 acquisition is divided into many analysis pseudo-trials:
 These settings affect scheduling/allocation only; they do not change
 `analyzeHz`, source kinetics, source detection thresholds, NMF iterations,
 or the values requested from `Slap2DataFile.getImages`.
+
+### MultiRoiRegistration runtime optimizations
+
+The optimized MultiRoiRegistration path keeps the registration model and
+quality settings unchanged (`alignHz`, `maxshift`, `clipShift`, initial
+template selection, adaptive template, and bilinear interpolation semantics)
+while reducing reader calls, allocations, and peak RAM:
+
+* SLAP2 frames are reconstructed with `Slap2DataFile.getImages` in bounded
+  blocks (`registrationBlockFrames`) instead of one `getImage` call per
+  channel/frame. The adaptive registration itself remains sequential.
+* `registrationBlockMemoryGB` caps each worker's full-raster read block.
+* Initial template frames and ReVolt laser-on probe frames are also loaded in
+  batches.
+* `xcorr2_nans_weighted_fast` evaluates the same freshness-weighted local
+  normalized-correlation statistic using direct overlap slices rather than
+  rebuilding `find`/`sub2ind` coordinate vectors for every candidate shift.
+  Set `useFastWeightedXcorr=false` to use the legacy reference kernel.
+* `interpFrameTranslationChannels` uses the global-translation structure of
+  MultiROI motion and shares coordinate/freshness lookup across channels.
+  Set `useFastInterpolation=false` to use the legacy `interpFrame` path.
+* A worker-local `Slap2DataFile`/metadata cache is reused across pseudo-trials
+  from the same continuous DAT when `reuseSlap2Reader=true`.
+* Registration-QC downsampled frames are processed in the same legacy
+  ~10-second chunks as they are produced instead of retaining the entire
+  downsampled movie in RAM.
+* Per-trial timing is printed and saved under `/runtime` in each
+  `_ALIGNMENTDATA.h5`.
+
+Regression tests compare the fast correlation and interpolation kernels
+directly against the original implementations.
