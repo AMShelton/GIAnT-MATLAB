@@ -22,3 +22,11 @@ verifyTrue(testCase,contains(txt,'cleanupIncompleteOutputPair'));
 verifyTrue(testCase,contains(txt,'partialAdataPath'));
 verifyTrue(testCase,contains(txt,'movefile(partialAdataPath, adataPath'));
 end
+
+function testStaticAndStreamedH5PathsAreProtected(testCase)
+root = fileparts(fileparts(mfilename('fullpath')));
+txt = fileread(fullfile(root,'motion_correction','MultiRoiRegistration.m'));
+verifyTrue(testCase,contains(txt,"ensureNumericDataset(partialAdataPath, '/slap2/varFacDS'"));
+verifyTrue(testCase,contains(txt,'writeHyperslabRobust(partialAdataPath'));
+verifyFalse(testCase,contains(txt,"h5create(partialAdataPath, '/slap2/varFacDS'"));
+end

@@ -414,12 +414,12 @@ if ~isfield(aData,'varFacChunkXY') || isempty(aData.varFacChunkXY)
 end
 varFacBufferFrames = min(8,nDSframes);
 varChunkXY = max(16,round(aData.varFacChunkXY));
-h5create(partialAdataPath, '/slap2/varFacDS', ...
-    [szOut(1), szOut(2), nDSframes], ...
-    'Datatype', 'single', ...
-    'ChunkSize', [min(varChunkXY,szOut(1)), ...
-                  min(varChunkXY,szOut(2)), ...
-                  varFacBufferFrames]);
+varFacChunkSize = [min(varChunkXY,szOut(1)), ...
+                   min(varChunkXY,szOut(2)), ...
+                   varFacBufferFrames];
+ensureNumericDataset(partialAdataPath, '/slap2/varFacDS', ...
+    [szOut(1), szOut(2), nDSframes], 'single', ...
+    'ChunkSize', varFacChunkSize);
 
 % PRE-FLIGHT ALL FINAL HDF5 DATASETS BEFORE EXPENSIVE REGISTRATION.
 % The previous streaming implementation created these datasets only after
@@ -557,7 +557,7 @@ try
         varFacBuffer(:,:,varFacBufferCount) = single(Vframe);
         if varFacBufferCount == varFacBufferFrames || DSframeIx == nDSframes
             tH5 = tic;
-            h5write(partialAdataPath,'/slap2/varFacDS', ...
+            writeHyperslabRobust(partialAdataPath,'/slap2/varFacDS', ...
                 varFacBuffer(:,:,1:varFacBufferCount), ...
                 [1,1,varFacBufferStart], ...
                 [szOut(1),szOut(2),varFacBufferCount]);
@@ -836,36 +836,96 @@ end
 end
 
 
-function ensureNumericDataset(filename,path,sz,dtype)
+function ensureNumericDataset(filename,path,sz,dtype,varargin)
 %ENSURENUMERICDATASET Create and verify a numeric H5 dataset with retries.
 % High-level HDF5 metadata operations can be briefly inconsistent on SMB
 % storage. Verify visibility here, before registration, rather than failing
-% after the expensive computation has completed.
-maxAttempts = 5;
+% after the expensive computation has completed. Additional name/value pairs
+% (for example 'ChunkSize') are forwarded to H5CREATE.
+maxCreateAttempts = 4;
+maxVisibilityChecks = 10;
+lastError = [];
+
+for createAttempt = 1:maxCreateAttempts
+    if h5DatasetExistsLocal(filename,path)
+        break
+    end
+    try
+        h5create(filename,path,sz,'Datatype',dtype,varargin{:});
+    catch ME
+        lastError = ME;
+    end
+    if waitForNumericDataset(filename,path,sz,maxVisibilityChecks)
+        break
+    end
+    if createAttempt < maxCreateAttempts
+        pause(h5BackoffSeconds(createAttempt));
+    end
+end
+
+if ~waitForNumericDataset(filename,path,sz,maxVisibilityChecks)
+    if isempty(lastError)
+        detail = 'dataset never became visible after creation';
+    else
+        detail = lastError.message;
+    end
+    error('MultiRoiRegistration:H5PrecreateFailed', ...
+        'Failed to create/verify HDF5 dataset %s: %s',path,detail);
+end
+end
+
+
+function tf = waitForNumericDataset(filename,path,expectedSize,maxChecks)
+tf = false;
+for checkIx = 1:maxChecks
+    try
+        info = h5info(filename,path);
+        actualSize = double(info.Dataspace.Size);
+        if ~isequal(actualSize(:)',double(expectedSize(:)'))
+            error('MultiRoiRegistration:H5DatasetSizeMismatch', ...
+                'Dataset %s has size [%s], expected [%s].',path, ...
+                num2str(actualSize),num2str(expectedSize));
+        end
+        tf = true;
+        return
+    catch ME
+        if strcmp(ME.identifier,'MultiRoiRegistration:H5DatasetSizeMismatch')
+            rethrow(ME);
+        end
+        if checkIx < maxChecks
+            pause(h5BackoffSeconds(checkIx));
+        end
+    end
+end
+end
+
+
+function writeHyperslabRobust(filename,path,val,start,count)
+%WRITEHYPERSLABROBUST Retry a streamed hyperslab write without recreating data.
+% Recreating /slap2/varFacDS after streaming has begun would silently discard
+% earlier frames, so a persistent failure is surfaced and the trial is cleaned
+% up by the existing registration error handler.
+maxAttempts = 8;
 lastError = [];
 for attempt = 1:maxAttempts
     try
-        if ~h5DatasetExistsLocal(filename,path)
-            h5create(filename,path,sz,'Datatype',dtype);
-        end
-        info = h5info(filename,path);
-        actualSize = double(info.Dataspace.Size);
-        if ~isequal(actualSize(:)',double(sz(:)'))
-            error('MultiRoiRegistration:H5DatasetSizeMismatch', ...
-                'Dataset %s has size [%s], expected [%s].',path, ...
-                num2str(actualSize),num2str(sz));
-        end
+        h5write(filename,path,val,start,count);
         return
     catch ME
         lastError = ME;
         if attempt < maxAttempts
-            pause(0.1*attempt);
+            pause(h5BackoffSeconds(attempt));
         end
     end
 end
-error('MultiRoiRegistration:H5PrecreateFailed', ...
-    'Failed to create/verify HDF5 dataset %s after %d attempts: %s', ...
+error('MultiRoiRegistration:H5HyperslabWriteFailed', ...
+    'Failed writing %s hyperslab after %d attempts: %s', ...
     path,maxAttempts,lastError.message);
+end
+
+
+function s = h5BackoffSeconds(attempt)
+s = min(0.8,0.05*2^(max(0,attempt-1)));
 end
 
 
@@ -880,7 +940,7 @@ if islogical(val)
 end
 
 expectedSize = size(val);
-maxAttempts = 5;
+maxAttempts = 8;
 lastError = [];
 for attempt = 1:maxAttempts
     try
@@ -901,7 +961,7 @@ for attempt = 1:maxAttempts
     catch ME
         lastError = ME;
         if attempt < maxAttempts
-            pause(0.1*attempt);
+            pause(h5BackoffSeconds(attempt));
         end
     end
 end
