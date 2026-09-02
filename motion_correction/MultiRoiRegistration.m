@@ -128,13 +128,20 @@ aData = params;
 disp(['Aligning: ' fnW ' of ' [trialTable.datadr filesep fn]])
 fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
 fnAdata = [fnW '_ALIGNMENTDATA.h5'];
+tifPath = fullfile(mocosavedr,fnwrite);
+adataPath = fullfile(mocosavedr,fnAdata);
+partialAdataPath = [adataPath '.partial'];
 registrationFailed = false;
 alignWallStart = tic;
 
-if ~params.overwriteExisting && exist([mocosavedr filesep fnAdata], 'file') && exist([mocosavedr filesep fnwrite], 'file')
-    disp([fnW ' of ' fn ' is already aligned; skipping' newline 'To force realign, pass TRUE as second argument']);
+% A trial is complete only when BOTH final outputs exist. If only one side
+% exists (for example after an HDF5 failure), discard the stale pair before
+% recomputing so a restart can never append to/reuse a partial registered TIFF.
+if ~params.overwriteExisting && exist(adataPath,'file') && exist(tifPath,'file')
+    disp([fnW ' of ' fn ' is already aligned; skipping' newline 'To force realign, set overwriteExisting=TRUE']);
     return
 end
+cleanupIncompleteOutputPair(adataPath,tifPath,partialAdataPath);
 
 readerReady = false;
 lastReaderError = [];
@@ -372,16 +379,6 @@ aErrorDS = nan(1,nDSframes); %alignment error output by dftregistration
 
 %output TIF
 pixelscale = 4e4; %PIXEL SIZE IN DOTS PER CM; 250nm
-tifPath = fullfile(mocosavedr, fnwrite);
-adataPath = fullfile(mocosavedr, fnAdata);
-partialAdataPath = [adataPath '.partial'];
-
-% Remove a stale partial file left by a killed/failed process.
-if exist(partialAdataPath, 'file')
-    delete(partialAdataPath);
-end
-
-fTIF = Fast_BigTiff_Write(tifPath,pixelscale,0);
 
 % Per-channel mean over time (aligned frames), numChannels x H x W.
 % H,W match interpFrame output / saved TIFF pages: trimmed crop plus maxshift padding.
@@ -423,6 +420,19 @@ h5create(partialAdataPath, '/slap2/varFacDS', ...
     'ChunkSize', [min(varChunkXY,szOut(1)), ...
                   min(varChunkXY,szOut(2)), ...
                   varFacBufferFrames]);
+
+% PRE-FLIGHT ALL FINAL HDF5 DATASETS BEFORE EXPENSIVE REGISTRATION.
+% The previous streaming implementation created these datasets only after
+% ~20+ minutes of work, then immediately called h5write. On network storage
+% that exposed an HDF5 metadata visibility failure (e.g. /runtime/wall_s was
+% reported missing immediately after h5create). Pre-creating and verifying
+% every destination here makes such failures immediate and leaves only
+% writes to already-existing datasets during finalization.
+precreateFinalAlignmentDatasets(partialAdataPath,numChannels,szOut,nDSframes,params.refStackTemplate);
+
+% Open the TIFF only after the HDF5 schema preflight succeeds, so a schema
+% error cannot leave an open/half-created TIFF behind.
+fTIF = Fast_BigTiff_Write(tifPath,pixelscale,0);
 
 varFacBuffer = nan(szOut(1), szOut(2), varFacBufferFrames, 'single');
 varFacBufferCount = 0;
@@ -639,18 +649,10 @@ fTIF.close;
 meanIM = sumMeanIM ./ max(nMeanIM, single(1));
 meanIM(nMeanIM < single(1)) = nan;
 
-runtimeTotalSeconds = readerSetupSeconds + initialReadSeconds + initialCorrSeconds + ...
+coreProfiledSeconds = readerSetupSeconds + initialReadSeconds + initialCorrSeconds + ...
     mainReadSeconds + mainCorrSeconds + mainInterpSeconds + ...
     templateUpdateSeconds + tiffWriteSeconds + h5WriteSeconds + qcSeconds;
-registrationWallSeconds = toc(alignWallStart);
-
-fprintf(['Registration timing %s: wall %.1f min; reader setup %.1f s (%s); init read %.1f s; ' ...
-    'init corr %.1f s; getImages %.1f s; xcorr %.1f s; interp %.1f s; ' ...
-    'template %.1f s; TIFF %.1f s; H5 %.1f s; QC %.1f s; block %d frames\n'], ...
-    fnW,registrationWallSeconds/60,readerSetupSeconds,ternary(readerCacheHit,'cache hit','new reader'), ...
-    initialReadSeconds,initialCorrSeconds,mainReadSeconds,mainCorrSeconds, ...
-    mainInterpSeconds,templateUpdateSeconds,tiffWriteSeconds,h5WriteSeconds, ...
-    qcSeconds,registrationBlockFrames);
+coreWallSeconds = toc(alignWallStart);
 
 if std(motionDSc)>1.5 || std(motionDSr)>1.5
     aData.registrationFailed = true;
@@ -677,11 +679,13 @@ aData.cropRow = trimRows(1)-aData.maxshift; %offset to add to ROIs to index into
 aData.cropCol = trimCols(1)-aData.maxshift; %offset to add to ROIs to index into original recording
 
 disp('Getting online motion correction offsets')
+tOnlineMotion = tic;
 if isprop(S2data, 'hDataFile')
     [aData.onlineXshift, aData.onlineYshift, aData.onlineZshift] = getOnlineMotion(S2data.hDataFile, DSframes);
 else
     [aData.onlineXshift, aData.onlineYshift, aData.onlineZshift] = getOnlineMotion(S2data.hMultiDataFiles, DSframes);
 end
+onlineMotionSeconds = toc(tOnlineMotion);
 %CONVERTING DATAFILE IMAGES INTO THE SAVED TIFF IMAGE SPACE:
 aData.trimRows = trimRows; %used to remap images from the datafile into the space of the saved tiffs
 aData.trimCols = trimCols;%used to remap images from the datafile into the space of the saved tiffs
@@ -695,39 +699,53 @@ aData.viewR = viewR;%used to remap images from the datafile into the space of th
 
 registrationFailed = aData.registrationFailed;
 
-% Complete the partially-written alignment H5. Static fields and
-% /slap2/varFacDS already exist; append only quantities calculated after
-% registration. This avoids ever materializing varFacDS in RAM.
-appendNumericDataset(partialAdataPath, '/meanIM', meanIM);
-appendNumericDataset(partialAdataPath, '/motionDSc', aData.motionDSc);
-appendNumericDataset(partialAdataPath, '/motionDSr', aData.motionDSr);
-appendNumericDataset(partialAdataPath, '/recNegErr', aData.recNegErr);
-appendNumericDataset(partialAdataPath, '/registrationFailed', aData.registrationFailed);
-appendNumericDataset(partialAdataPath, '/runtime/readerSetup_s', readerSetupSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/initialRead_s', initialReadSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/initialCorrelation_s', initialCorrSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/getImages_s', mainReadSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/correlation_s', mainCorrSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/interpolation_s', mainInterpSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/templateUpdate_s', templateUpdateSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/tiffWrite_s', tiffWriteSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/h5Write_s', h5WriteSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/qc_s', qcSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/profiledTotal_s', runtimeTotalSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/wall_s', registrationWallSeconds);
-appendNumericDataset(partialAdataPath, '/runtime/registrationBlockFrames', registrationBlockFrames);
-appendNumericDataset(partialAdataPath, '/slap2/onlineMotionXshift', aData.onlineXshift);
-appendNumericDataset(partialAdataPath, '/slap2/onlineMotionYshift', aData.onlineYshift);
-appendNumericDataset(partialAdataPath, '/slap2/onlineMotionZshift', aData.onlineZshift);
+% Complete the partially-written alignment H5. All destination datasets
+% were pre-created before registration, so finalization performs writes only.
+tFinalH5 = tic;
+writeNumericDatasetRobust(partialAdataPath, '/meanIM', meanIM);
+writeNumericDatasetRobust(partialAdataPath, '/motionDSc', aData.motionDSc);
+writeNumericDatasetRobust(partialAdataPath, '/motionDSr', aData.motionDSr);
+writeNumericDatasetRobust(partialAdataPath, '/recNegErr', aData.recNegErr);
+writeNumericDatasetRobust(partialAdataPath, '/registrationFailed', aData.registrationFailed);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/readerSetup_s', readerSetupSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/initialRead_s', initialReadSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/initialCorrelation_s', initialCorrSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/getImages_s', mainReadSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/correlation_s', mainCorrSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/interpolation_s', mainInterpSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/templateUpdate_s', templateUpdateSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/tiffWrite_s', tiffWriteSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/h5Write_s', h5WriteSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/qc_s', qcSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/coreWall_s', coreWallSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/onlineMotion_s', onlineMotionSeconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/registrationBlockFrames', registrationBlockFrames);
+writeNumericDatasetRobust(partialAdataPath, '/slap2/onlineMotionXshift', aData.onlineXshift);
+writeNumericDatasetRobust(partialAdataPath, '/slap2/onlineMotionYshift', aData.onlineYshift);
+writeNumericDatasetRobust(partialAdataPath, '/slap2/onlineMotionZshift', aData.onlineZshift);
 if isfield(aData, 'motionDSz')
-    appendNumericDataset(partialAdataPath, '/motionDSz', aData.motionDSz);
+    writeNumericDatasetRobust(partialAdataPath, '/motionDSz', aData.motionDSz);
 end
+finalH5Seconds = toc(tFinalH5);
+profiledTotalSeconds = coreProfiledSeconds + onlineMotionSeconds + finalH5Seconds;
+writeNumericDatasetRobust(partialAdataPath, '/runtime/finalH5_s', finalH5Seconds);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/profiledTotal_s', profiledTotalSeconds);
+prePublishWallSeconds = toc(alignWallStart);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/wall_s', prePublishWallSeconds);
 
-% Publish only a complete metadata file.
-if exist(adataPath, 'file')
-    delete(adataPath);
-end
+% Publish only a complete metadata file. The registered TIFF was closed
+% above; renaming the fully-populated partial H5 is the final commit step.
 movefile(partialAdataPath, adataPath, 'f');
+
+fprintf(['Registration timing %s: total %.1f min; core %.1f min; reader %.1f s (%s); ' ...
+    'init read %.1f s; init corr %.1f s; getImages %.1f s; xcorr %.1f s; interp %.1f s; ' ...
+    'template %.1f s; TIFF %.1f s; streamed H5 %.1f s; QC %.1f s; online motion %.1f s; ' ...
+    'final H5 %.1f s; block %d frames\n'], ...
+    fnW,prePublishWallSeconds/60,coreWallSeconds/60,readerSetupSeconds, ...
+    ternary(readerCacheHit,'cache hit','new reader'),initialReadSeconds,initialCorrSeconds, ...
+    mainReadSeconds,mainCorrSeconds,mainInterpSeconds,templateUpdateSeconds, ...
+    tiffWriteSeconds,h5WriteSeconds,qcSeconds,onlineMotionSeconds,finalH5Seconds, ...
+    registrationBlockFrames);
 end
 
 function workerTable = makeWorkerTable(trialTable, params, DMD_ix)
@@ -768,22 +786,138 @@ end
 end
 
 
-function appendNumericDataset(filename, path, val)
-%APPENDNUMERICDATASET Append a numeric/logical dataset without recreating H5.
-% Mirrors saveStructToH5 numeric/logical conventions.
+function cleanupIncompleteOutputPair(adataPath,tifPath,partialAdataPath)
+%CLEANUPINCOMPLETEOUTPUTPAIR Remove outputs unless the final H5/TIFF pair is complete.
+paths = {partialAdataPath,adataPath,tifPath};
+for ix = 1:numel(paths)
+    if exist(paths{ix},'file')
+        delete(paths{ix});
+    end
+end
+end
 
+
+function precreateFinalAlignmentDatasets(filename,numChannels,szOut,nDSframes,hasMotionZ)
+%PREFINALALIGNMENTDATASETS Fail fast if the final H5 schema cannot be created.
+ensureNumericDataset(filename,'/meanIM',[numChannels,szOut(1),szOut(2)],'single');
+ensureNumericDataset(filename,'/motionDSc',[1,nDSframes],'double');
+ensureNumericDataset(filename,'/motionDSr',[1,nDSframes],'double');
+ensureNumericDataset(filename,'/recNegErr',[1,nDSframes],'double');
+ensureNumericDataset(filename,'/registrationFailed',[1,1],'int8');
+
+runtimeScalars = { ...
+    '/runtime/readerSetup_s', ...
+    '/runtime/initialRead_s', ...
+    '/runtime/initialCorrelation_s', ...
+    '/runtime/getImages_s', ...
+    '/runtime/correlation_s', ...
+    '/runtime/interpolation_s', ...
+    '/runtime/templateUpdate_s', ...
+    '/runtime/tiffWrite_s', ...
+    '/runtime/h5Write_s', ...
+    '/runtime/qc_s', ...
+    '/runtime/coreWall_s', ...
+    '/runtime/onlineMotion_s', ...
+    '/runtime/finalH5_s', ...
+    '/runtime/profiledTotal_s', ...
+    '/runtime/wall_s', ...
+    '/runtime/registrationBlockFrames'};
+for ix = 1:numel(runtimeScalars)
+    ensureNumericDataset(filename,runtimeScalars{ix},[1,1],'double');
+end
+
+% getOnlineMotion deliberately returns column vectors for compatibility.
+ensureNumericDataset(filename,'/slap2/onlineMotionXshift',[nDSframes,1],'double');
+ensureNumericDataset(filename,'/slap2/onlineMotionYshift',[nDSframes,1],'double');
+ensureNumericDataset(filename,'/slap2/onlineMotionZshift',[nDSframes,1],'double');
+if hasMotionZ
+    ensureNumericDataset(filename,'/motionDSz',[1,nDSframes],'double');
+end
+end
+
+
+function ensureNumericDataset(filename,path,sz,dtype)
+%ENSURENUMERICDATASET Create and verify a numeric H5 dataset with retries.
+% High-level HDF5 metadata operations can be briefly inconsistent on SMB
+% storage. Verify visibility here, before registration, rather than failing
+% after the expensive computation has completed.
+maxAttempts = 5;
+lastError = [];
+for attempt = 1:maxAttempts
+    try
+        if ~h5DatasetExistsLocal(filename,path)
+            h5create(filename,path,sz,'Datatype',dtype);
+        end
+        info = h5info(filename,path);
+        actualSize = double(info.Dataspace.Size);
+        if ~isequal(actualSize(:)',double(sz(:)'))
+            error('MultiRoiRegistration:H5DatasetSizeMismatch', ...
+                'Dataset %s has size [%s], expected [%s].',path, ...
+                num2str(actualSize),num2str(sz));
+        end
+        return
+    catch ME
+        lastError = ME;
+        if attempt < maxAttempts
+            pause(0.1*attempt);
+        end
+    end
+end
+error('MultiRoiRegistration:H5PrecreateFailed', ...
+    'Failed to create/verify HDF5 dataset %s after %d attempts: %s', ...
+    path,maxAttempts,lastError.message);
+end
+
+
+function writeNumericDatasetRobust(filename,path,val)
+%WRITENUMERICDATASETROBUST Write a pre-created dataset with bounded retries.
 if isempty(val)
     return
 end
-
 val = gather(val);
 if islogical(val)
     val = int8(val);
 end
 
-dtype = class(val);
-h5create(filename, path, size(val), 'Datatype', dtype);
-h5write(filename, path, val);
+expectedSize = size(val);
+maxAttempts = 5;
+lastError = [];
+for attempt = 1:maxAttempts
+    try
+        if ~h5DatasetExistsLocal(filename,path)
+            % This should have been caught by the preflight, but recover if
+            % the backing filesystem lost metadata visibility transiently.
+            ensureNumericDataset(filename,path,expectedSize,class(val));
+        end
+        info = h5info(filename,path);
+        actualSize = double(info.Dataspace.Size);
+        if ~isequal(actualSize(:)',double(expectedSize(:)'))
+            error('MultiRoiRegistration:H5DatasetSizeMismatch', ...
+                'Dataset %s has size [%s], value has size [%s].',path, ...
+                num2str(actualSize),num2str(expectedSize));
+        end
+        h5write(filename,path,val);
+        return
+    catch ME
+        lastError = ME;
+        if attempt < maxAttempts
+            pause(0.1*attempt);
+        end
+    end
+end
+error('MultiRoiRegistration:H5WriteFailed', ...
+    'Failed to write HDF5 dataset %s after %d attempts: %s', ...
+    path,maxAttempts,lastError.message);
+end
+
+
+function tf = h5DatasetExistsLocal(filename,path)
+tf = false;
+try
+    h5info(filename,path);
+    tf = true;
+catch
+end
 end
 
 
