@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
 #include <vector>
 
 namespace giant_xcorr {
@@ -27,12 +28,13 @@ inline long positiveModulo(long value, long modulus) {
     return out;
 }
 
-inline std::vector<double> circshift2d(const double* src,
-                                       std::size_t nRows,
-                                       std::size_t nCols,
-                                       long shiftRow,
-                                       long shiftCol) {
-    std::vector<double> dst(nRows * nCols);
+template <typename T>
+inline std::vector<T> circshift2d(const T* src,
+                                  std::size_t nRows,
+                                  std::size_t nCols,
+                                  long shiftRow,
+                                  long shiftCol) {
+    std::vector<T> dst(nRows * nCols);
     const long nr = static_cast<long>(nRows);
     const long nc = static_cast<long>(nCols);
     for (std::size_t c = 0; c < nCols; ++c) {
@@ -46,21 +48,31 @@ inline std::vector<double> circshift2d(const double* src,
     return dst;
 }
 
-struct FiniteFramePixel {
+template <typename FrameT, typename FreshT>
+struct FiniteFramePixelT {
     long row;
     long col;
-    double value;
-    double freshness;
+    FrameT value;
+    FreshT freshness;
 };
 
-inline WeightedXcorrResult weightedXcorrDouble(const double* frame,
-                                                const double* freshness,
-                                                const double* templateIn,
-                                                std::size_t nRows,
-                                                std::size_t nCols,
-                                                long shiftCenterRow,
-                                                long shiftCenterCol,
-                                                long dShift) {
+// Native-precision implementation matching MATLAB's default arithmetic rules:
+// mean/sum of SINGLE inputs remain SINGLE; mixed SINGLE/DOUBLE expressions
+// promote to DOUBLE.  The final C surface is returned as DOUBLE because the
+// MATLAB reference preallocates C with NAN (double) before assignment.
+template <typename FrameT, typename FreshT, typename TemplateT>
+inline WeightedXcorrResult weightedXcorr(const FrameT* frame,
+                                         const FreshT* freshness,
+                                         const TemplateT* templateIn,
+                                         std::size_t nRows,
+                                         std::size_t nCols,
+                                         long shiftCenterRow,
+                                         long shiftCenterCol,
+                                         long dShift) {
+    static_assert(std::is_floating_point<FrameT>::value, "Frame type must be floating point.");
+    static_assert(std::is_floating_point<FreshT>::value, "Freshness type must be floating point.");
+    static_assert(std::is_floating_point<TemplateT>::value, "Template type must be floating point.");
+
     if (!frame || !freshness || !templateIn) {
         throw std::invalid_argument("Null input pointer.");
     }
@@ -71,26 +83,22 @@ inline WeightedXcorrResult weightedXcorrDouble(const double* frame,
         throw std::invalid_argument("dShift must be nonnegative.");
     }
 
-    const double* templ = templateIn;
-    std::vector<double> shiftedTemplate;
+    const TemplateT* templ = templateIn;
+    std::vector<TemplateT> shiftedTemplate;
     if (shiftCenterRow != 0 || shiftCenterCol != 0) {
         shiftedTemplate = circshift2d(templateIn,nRows,nCols,shiftCenterRow,shiftCenterCol);
         templ = shiftedTemplate.data();
     }
 
-    // Mirror the legacy MATLAB implementation's FIND(~isnan(frame)) once per
-    // correlation call. MATLAB FIND returns column-major order; scanning
-    // columns then rows preserves that reduction order while avoiding all
-    // per-candidate coordinate/sub2ind allocations. This is especially useful
-    // for sparse SLAP2 multi-ROI raster images.
-    std::vector<FiniteFramePixel> finiteFrame;
+    // Mirror FIND(~isnan(frame)) once per call in MATLAB column-major order.
+    std::vector<FiniteFramePixelT<FrameT,FreshT>> finiteFrame;
     finiteFrame.reserve(nRows*nCols);
     for (std::size_t c = 0; c < nCols; ++c) {
         for (std::size_t r = 0; r < nRows; ++r) {
             const std::size_t idx = matlabIndex(r,c,nRows);
-            const double F = frame[idx];
+            const FrameT F = frame[idx];
             if (std::isnan(F)) continue;
-            finiteFrame.push_back(FiniteFramePixel{
+            finiteFrame.push_back(FiniteFramePixelT<FrameT,FreshT>{
                 static_cast<long>(r),static_cast<long>(c),F,freshness[idx]});
         }
     }
@@ -107,56 +115,71 @@ inline WeightedXcorrResult weightedXcorrDouble(const double* frame,
     const long nr = static_cast<long>(nRows);
     const long nc = static_cast<long>(nCols);
 
+    using FTProduct = typename std::common_type<FrameT,FreshT>::type;
+    using CovType = typename std::common_type<FTProduct,TemplateT>::type;
+
     for (long dcix = 0; dcix < nShiftsLong; ++dcix) {
         const long dc = dcix - dShift;
         for (long drix = 0; drix < nShiftsLong; ++drix) {
             const long dr = drix - dShift;
 
-            // First pass: exact legacy inclusion criterion and unweighted means.
-            double sumF = 0.0;
-            double sumT = 0.0;
+            // MATLAB mean(F) / mean(T) use native precision for SINGLE.
+            FrameT sumF = static_cast<FrameT>(0);
+            TemplateT sumT = static_cast<TemplateT>(0);
             std::size_t count = 0;
-            for (const FiniteFramePixel& px : finiteFrame) {
+            for (const auto& px : finiteFrame) {
                 const long tr = px.row + dr;
                 const long tc = px.col + dc;
                 if (tr < 0 || tr >= nr || tc < 0 || tc >= nc) continue;
-                const double T = templ[matlabIndex(
+                const TemplateT T = templ[matlabIndex(
                     static_cast<std::size_t>(tr),static_cast<std::size_t>(tc),nRows)];
                 if (std::isnan(T)) continue;
-                sumF += px.value;
-                sumT += T;
+                sumF = static_cast<FrameT>(sumF + px.value);
+                sumT = static_cast<TemplateT>(sumT + T);
                 ++count;
             }
             if (count == 0) continue;
 
-            const double mF = sumF / static_cast<double>(count);
-            const double mT = sumT / static_cast<double>(count);
+            const FrameT mF = static_cast<FrameT>(sumF / static_cast<FrameT>(count));
+            const TemplateT mT = static_cast<TemplateT>(sumT / static_cast<TemplateT>(count));
 
-            // Second pass: same freshness-weighted covariance/frame variance
-            // and unweighted template variance as xcorr2_nans_weighted.m.
-            double sFT = 0.0;
-            double sumT2 = 0.0;
-            double sF = 0.0;
-            double sumW = 0.0;
-            for (const FiniteFramePixel& px : finiteFrame) {
+            CovType sFT = static_cast<CovType>(0);
+            TemplateT sumT2 = static_cast<TemplateT>(0);
+            FTProduct sF = static_cast<FTProduct>(0);
+            FreshT sumW = static_cast<FreshT>(0);
+
+            for (const auto& px : finiteFrame) {
                 const long tr = px.row + dr;
                 const long tc = px.col + dc;
                 if (tr < 0 || tr >= nr || tc < 0 || tc >= nc) continue;
-                const double T = templ[matlabIndex(
+                const TemplateT T = templ[matlabIndex(
                     static_cast<std::size_t>(tr),static_cast<std::size_t>(tc),nRows)];
                 if (std::isnan(T)) continue;
-                const double dF = px.value - mF;
-                const double dT = T - mT;
-                const double w = px.freshness;
-                sFT += w * dF * dT;
-                sumT2 += dT * dT;
-                sF += w * dF * dF;
-                sumW += w;
+
+                const FrameT dF = static_cast<FrameT>(px.value - mF);
+                const TemplateT dT = static_cast<TemplateT>(T - mT);
+                const FreshT w = px.freshness;
+
+                const FTProduct wDF = static_cast<FTProduct>(w * dF);
+                sFT = static_cast<CovType>(sFT + static_cast<CovType>(wDF) * static_cast<CovType>(dT));
+                sumT2 = static_cast<TemplateT>(sumT2 + static_cast<TemplateT>(dT * dT));
+                sF = static_cast<FTProduct>(sF + static_cast<FTProduct>(wDF * static_cast<FTProduct>(dF)));
+                sumW = static_cast<FreshT>(sumW + w);
             }
 
-            const double sT = sumT2 / static_cast<double>(count);
+            const TemplateT sT = static_cast<TemplateT>(
+                sumT2 / static_cast<TemplateT>(count));
+
+            // Preserve native/mixed arithmetic before converting the result to
+            // the double C surface used by MATLAB.
+            using DenType = typename std::common_type<TemplateT,FTProduct,FreshT>::type;
+            const DenType denomArg = static_cast<DenType>(sT) *
+                static_cast<DenType>(sF) * static_cast<DenType>(sumW);
+            const DenType denom = static_cast<DenType>(std::sqrt(denomArg));
+            const CovType corr = static_cast<CovType>(sFT / static_cast<CovType>(denom));
+
             out.C[static_cast<std::size_t>(drix) + static_cast<std::size_t>(dcix)*nShifts] =
-                sFT / std::sqrt(sT * sF * sumW);
+                static_cast<double>(corr);
         }
     }
 
@@ -198,6 +221,19 @@ inline WeightedXcorrResult weightedXcorrDouble(const double* frame,
     out.motion[1] = static_cast<double>(shiftCenterCol) - (shiftC - dC);
     return out;
 }
+
+inline WeightedXcorrResult weightedXcorrDouble(const double* frame,
+                                                const double* freshness,
+                                                const double* templateIn,
+                                                std::size_t nRows,
+                                                std::size_t nCols,
+                                                long shiftCenterRow,
+                                                long shiftCenterCol,
+                                                long dShift) {
+    return weightedXcorr<double,double,double>(frame,freshness,templateIn,
+        nRows,nCols,shiftCenterRow,shiftCenterCol,dShift);
+}
+
 } // namespace giant_xcorr
 
 #endif

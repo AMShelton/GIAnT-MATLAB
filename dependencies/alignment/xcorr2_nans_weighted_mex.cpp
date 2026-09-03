@@ -7,10 +7,11 @@
 
 namespace {
 
-void requireDoubleReal2D(const mxArray* a, const char* name) {
-    if (!mxIsDouble(a) || mxIsComplex(a) || mxIsSparse(a) || mxGetNumberOfDimensions(a) > 2) {
+void requireRealFloating2D(const mxArray* a, const char* name) {
+    const bool floating = mxIsDouble(a) || mxIsSingle(a);
+    if (!floating || mxIsComplex(a) || mxIsSparse(a) || mxGetNumberOfDimensions(a) > 2) {
         mexErrMsgIdAndTxt("xcorr2_nans_weighted_mex:UnsupportedType",
-                         "%s must be a real, full, 2-D double array.", name);
+                         "%s must be a real, full, 2-D single or double array.", name);
     }
 }
 
@@ -28,6 +29,44 @@ long readIntegerScalar(const mxArray* a, const char* name, bool nonnegative) {
     return static_cast<long>(v);
 }
 
+template <typename F, typename W, typename T>
+giant_xcorr::WeightedXcorrResult runTyped(const mxArray* frame,
+                                          const mxArray* freshness,
+                                          const mxArray* templ,
+                                          std::size_t nRows,
+                                          std::size_t nCols,
+                                          long centerR,
+                                          long centerC,
+                                          long dShift) {
+    return giant_xcorr::weightedXcorr<F,W,T>(
+        static_cast<const F*>(mxGetData(frame)),
+        static_cast<const W*>(mxGetData(freshness)),
+        static_cast<const T*>(mxGetData(templ)),
+        nRows,nCols,centerR,centerC,dShift);
+}
+
+giant_xcorr::WeightedXcorrResult dispatchByClass(const mxArray* frame,
+                                                  const mxArray* freshness,
+                                                  const mxArray* templ,
+                                                  std::size_t nRows,
+                                                  std::size_t nCols,
+                                                  long centerR,
+                                                  long centerC,
+                                                  long dShift) {
+    const bool fs = mxIsSingle(frame);
+    const bool ws = mxIsSingle(freshness);
+    const bool ts = mxIsSingle(templ);
+
+    if (fs && ws && ts) return runTyped<float,float,float>(frame,freshness,templ,nRows,nCols,centerR,centerC,dShift);
+    if (fs && ws && !ts) return runTyped<float,float,double>(frame,freshness,templ,nRows,nCols,centerR,centerC,dShift);
+    if (fs && !ws && ts) return runTyped<float,double,float>(frame,freshness,templ,nRows,nCols,centerR,centerC,dShift);
+    if (fs && !ws && !ts) return runTyped<float,double,double>(frame,freshness,templ,nRows,nCols,centerR,centerC,dShift);
+    if (!fs && ws && ts) return runTyped<double,float,float>(frame,freshness,templ,nRows,nCols,centerR,centerC,dShift);
+    if (!fs && ws && !ts) return runTyped<double,float,double>(frame,freshness,templ,nRows,nCols,centerR,centerC,dShift);
+    if (!fs && !ws && ts) return runTyped<double,double,float>(frame,freshness,templ,nRows,nCols,centerR,centerC,dShift);
+    return runTyped<double,double,double>(frame,freshness,templ,nRows,nCols,centerR,centerC,dShift);
+}
+
 } // namespace
 
 void mexFunction(int nlhs, mxArray* plhs[], int nrhs, const mxArray* prhs[]) {
@@ -40,9 +79,9 @@ void mexFunction(int nlhs, mxArray* plhs[], int nrhs, const mxArray* prhs[]) {
                          "At most three outputs are supported: motion, R, C.");
     }
 
-    requireDoubleReal2D(prhs[0],"frame");
-    requireDoubleReal2D(prhs[1],"freshness");
-    requireDoubleReal2D(prhs[2],"template");
+    requireRealFloating2D(prhs[0],"frame");
+    requireRealFloating2D(prhs[1],"freshness");
+    requireRealFloating2D(prhs[2],"template");
 
     const mwSize nRows = mxGetM(prhs[2]);
     const mwSize nCols = mxGetN(prhs[2]);
@@ -67,10 +106,10 @@ void mexFunction(int nlhs, mxArray* plhs[], int nrhs, const mxArray* prhs[]) {
     const long dShift = readIntegerScalar(prhs[4],"dShift",true);
 
     try {
-        giant_xcorr::WeightedXcorrResult result = giant_xcorr::weightedXcorrDouble(
-            mxGetPr(prhs[0]), mxGetPr(prhs[1]), mxGetPr(prhs[2]),
-            static_cast<std::size_t>(nRows), static_cast<std::size_t>(nCols),
-            centerR, centerC, dShift);
+        giant_xcorr::WeightedXcorrResult result = dispatchByClass(
+            prhs[0],prhs[1],prhs[2],
+            static_cast<std::size_t>(nRows),static_cast<std::size_t>(nCols),
+            centerR,centerC,dShift);
 
         if (nlhs >= 1) {
             plhs[0] = mxCreateDoubleMatrix(1,2,mxREAL);

@@ -78,6 +78,46 @@ end
 verifyEqual(testCase,info.matlabFastCalls,1);
 end
 
+
+function testSingleInputsAreMexCompatibleWhenBinaryExists(testCase)
+assumeTrue(testCase,exist('xcorr2_nans_weighted_mex','file') == 3, ...
+    'Optional MEX binary is not built on this machine.');
+rng(211);
+frame = single(randn(23,29));
+freshness = single(0.25 + rand(23,29));
+template = double(randn(23,29));
+frame(rand(size(frame))<0.1) = nan;
+template(rand(size(template))<0.1) = nan;
+opts = struct('useMex',true,'validateMexOnFirstUse',true,'useAdaptive',false);
+[~,~,~,info] = xcorr2_nans_weighted_dispatch( ...
+    frame,freshness,template,[0;0],3,opts);
+verifyTrue(testCase,info.mexInputCompatible);
+verifyEqual(testCase,info.backend,'mex');
+verifyEqual(testCase,info.mexAttempts,1);
+verifyEqual(testCase,info.mexSuccesses,1);
+verifyEqual(testCase,info.matlabFastCalls,0);
+verifyEqual(testCase,info.mexFallbacks,0);
+end
+
+function testMixedPrecisionSignatureGetsIndependentValidation(testCase)
+assumeTrue(testCase,exist('xcorr2_nans_weighted_mex','file') == 3, ...
+    'Optional MEX binary is not built on this machine.');
+% Clear persistent dispatcher state so this test exercises both signatures.
+clear xcorr2_nans_weighted_dispatch
+rng(212);
+frame = single(randn(21,27));
+freshness = single(0.2 + rand(21,27));
+templateS = single(randn(21,27));
+templateD = double(templateS);
+opts = struct('useMex',true,'validateMexOnFirstUse',true,'useAdaptive',false);
+[~,~,~,infoS] = xcorr2_nans_weighted_dispatch(frame,freshness,templateS,[0;0],2,opts);
+[~,~,~,infoD] = xcorr2_nans_weighted_dispatch(frame,freshness,templateD,[0;0],2,opts);
+verifyEqual(testCase,infoS.backend,'mex');
+verifyTrue(testCase,infoS.mexValidationPassed);
+verifyEqual(testCase,infoD.backend,'mex');
+verifyTrue(testCase,infoD.mexValidationPassed);
+end
+
 function testProductionSourceNeverCompilesMex(testCase)
 root = fileparts(fileparts(mfilename('fullpath')));
 multiTxt = fileread(fullfile(root,'motion_correction','MultiRoiRegistration.m'));

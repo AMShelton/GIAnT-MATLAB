@@ -55,7 +55,9 @@ fprintf('xcorr synthetic benchmark: legacy %.3f s; fast %.3f s; speedup %.2fx\n'
 
 if exist('xcorr2_nans_weighted_mex','file') == 3
     mexReport = validateWeightedXcorrMex('Strict',true,'RunBenchmark',true);
-    fprintf('xcorr MEX status: validated; speedup vs MATLAB-fast %.2fx\n',mexReport.speedup);
+    fprintf(['xcorr MEX status: validated; main single/single/double speedup %.2fx; ' ...
+        'template single/single/single speedup %.2fx\n'], ...
+        mexReport.speedup,mexReport.initialTemplateSpeedup);
 else
     fprintf(['xcorr MEX status: optional binary not present. This is NOT a test failure; ' ...
         'MultiRoiRegistration will use the MATLAB-fast fallback.\n']);

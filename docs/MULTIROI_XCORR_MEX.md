@@ -22,9 +22,11 @@ template construction remains exhaustive.
 `MultiRoiRegistration` never compiles code. At runtime:
 
 1. if `xcorr2_nans_weighted_mex` is loadable, each MATLAB process/worker
-   validates it on its first *actual GIAnT correlation input* against
-   `xcorr2_nans_weighted_fast`;
-2. if validation passes, the MEX backend is used;
+   validates it on the first *actual GIAnT correlation input for each input-class
+   signature* against `xcorr2_nans_weighted_fast`; real SLAP2 registration uses
+   both `single/single/single` and `single/single/double` inputs;
+2. if validation passes, the MEX backend is used directly on native `single`
+   and/or `double` arrays without MATLAB-side full-image casts;
 3. if the MEX is absent, incompatible, fails validation, or throws later, the
    current MATLAB fast implementation is used immediately;
 4. a runtime MEX failure is sticky for that process/worker, so a long run does

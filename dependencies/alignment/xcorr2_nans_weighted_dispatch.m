@@ -3,12 +3,14 @@ function [motion,R,C,info] = xcorr2_nans_weighted_dispatch(frame,freshness,templ
 %
 % Production safety contract:
 %   1) this function NEVER compiles a MEX binary;
-%   2) if the optional MEX is absent, incompatible, fails validation, or
-%      throws at runtime, the current xcorr2_nans_weighted_fast MATLAB path
+%   2) the optional MEX accepts real full SINGLE/DOUBLE inputs (including
+%      mixed precision) and validates each input-class signature on first use;
+%   3) if the MEX is absent, incompatible, fails validation, or throws at
+%      runtime, the current xcorr2_nans_weighted_fast MATLAB path
 %      is used immediately instead;
-%   3) MEX failure is sticky for the lifetime of this MATLAB process/worker,
+%   4) MEX failure is sticky for the lifetime of this MATLAB process/worker,
 %      preventing repeated failures inside a long registration run;
-%   4) optional adaptive search is OFF by default and is independent of MEX.
+%   5) optional adaptive search is OFF by default and is independent of MEX.
 %
 % opts fields (all optional):
 %   useMex                 default true
@@ -25,12 +27,13 @@ if nargin < 6 || isempty(opts)
 end
 opts = normalizeOptions(opts,dShift);
 
-persistent mexState mexFailureMessage mexWarningIssued ...
+persistent mexState mexFailureMessage mexWarningIssued mexValidatedSignatures ...
     adaptiveCounter adaptiveDisabled adaptiveWarningIssued backendReportKey
 % mexState: 0 unknown/not yet probed, 1 validated usable, -1 disabled.
 if isempty(mexState), mexState = 0; end
 if isempty(mexFailureMessage), mexFailureMessage = ''; end
 if isempty(mexWarningIssued), mexWarningIssued = false; end
+if isempty(mexValidatedSignatures), mexValidatedSignatures = {}; end
 if isempty(adaptiveCounter), adaptiveCounter = 0; end
 if isempty(adaptiveDisabled), adaptiveDisabled = false; end
 if isempty(adaptiveWarningIssued), adaptiveWarningIssued = false; end
@@ -50,16 +53,26 @@ info = struct('backend','','requestedRadius',double(dShift), ...
     'mexAttempts',0,'mexSuccesses',0,'matlabFastCalls',0,'mexFallbacks',0);
 
 % Probe only when MEX use was requested and the actual inputs are supported.
-% Unsupported input classes simply use MATLAB-fast without poisoning MEX for
-% a later compatible call.
+% SINGLE and DOUBLE arrays are supported, including mixed class combinations.
+% Numerical validation is performed once per input-class signature on each
+% worker because template generation and main registration use different
+% precision combinations in real SLAP2 data.
 mexInputCompatible = compatibleMexInputs(frame,freshness,template);
 info.mexInputCompatible = mexInputCompatible;
-if opts.useMex && mexInputCompatible && mexState == 0
+classSignature = sprintf('%s|%s|%s',class(frame),class(freshness),class(template));
+signatureValidated = any(strcmp(mexValidatedSignatures,classSignature));
+needsProbe = opts.useMex && mexInputCompatible && mexState ~= -1 && ...
+    (mexState == 0 || (opts.validateMexOnFirstUse && ~signatureValidated));
+if needsProbe
     [usable,msg] = probeMexBackend(opts.validateMexOnFirstUse, ...
         frame,freshness,template,shiftsCenter,dShift);
     if usable
         mexState = 1;
         mexFailureMessage = '';
+        if opts.validateMexOnFirstUse && ~signatureValidated
+            mexValidatedSignatures{end+1} = classSignature; %#ok<AGROW>
+            signatureValidated = true;
+        end
     else
         mexState = -1;
         mexFailureMessage = msg;
@@ -80,8 +93,9 @@ if opts.useMex && mexInputCompatible && mexState == 0
     end
 end
 
-useMexNow = opts.useMex && mexInputCompatible && mexState == 1;
-info.mexValidationPassed = logical(opts.validateMexOnFirstUse && useMexNow);
+useMexNow = opts.useMex && mexInputCompatible && mexState == 1 && ...
+    (~opts.validateMexOnFirstUse || signatureValidated);
+info.mexValidationPassed = logical(opts.validateMexOnFirstUse && useMexNow && signatureValidated);
 backendReportKey = reportBackendDecisionOnce( ...
     backendReportKey,opts,mexInputCompatible,mexState,mexFailureMessage, ...
     frame,freshness,template);
@@ -225,7 +239,7 @@ if ~mexInputCompatible
     key = sprintf('incompatible|%s|%s|%s',class(frame),class(freshness),class(template));
     if ~strcmp(reportKey,key)
         fprintf(['Weighted xcorr worker backend: frame=%s; freshness=%s; template=%s; ' ...
-            'MEX skipped (requires real, nonsparse 2-D double inputs); backend=MATLAB-fast.\n'], ...
+            'MEX skipped (requires real, nonsparse 2-D single/double inputs); backend=MATLAB-fast.\n'], ...
             class(frame),class(freshness),class(template));
         reportKey = key;
     end
@@ -270,7 +284,8 @@ end
 
 
 function tf = compatibleMexInputs(frame,freshness,template)
-tf = isa(frame,'double') && isa(freshness,'double') && isa(template,'double') && ...
+isFloat = @(x) isa(x,'single') || isa(x,'double');
+tf = isFloat(frame) && isFloat(freshness) && isFloat(template) && ...
     isreal(frame) && isreal(freshness) && isreal(template) && ...
     ~issparse(frame) && ~issparse(freshness) && ~issparse(template) && ...
     ismatrix(frame) && ismatrix(freshness) && ismatrix(template);
@@ -314,15 +329,47 @@ try
         rErr = double(~(isnan(rRef) && isnan(rMex)));
     end
 
-    usable = sameNaNs && cErr <= 5e-10 && mErr <= 5e-9 && rErr <= 5e-10;
+    [cTol,mTol,rTol] = mexValidationTolerances(frame,freshness,template);
+    samePeak = sameCorrelationPeak(cRef,cMex);
+    usable = sameNaNs && samePeak && cErr <= cTol && mErr <= mTol && rErr <= rTol;
     if ~usable
-        msg = sprintf('real-input numerical mismatch: max |dC|=%g, |dmotion|=%g, |dR|=%g', ...
-            cErr,mErr,rErr);
+        msg = sprintf(['real-input numerical mismatch (%s/%s/%s): samePeak=%d, ' ...
+            'max |dC|=%g (tol %g), |dmotion|=%g (tol %g), |dR|=%g (tol %g)'], ...
+            class(frame),class(freshness),class(template),samePeak, ...
+            cErr,cTol,mErr,mTol,rErr,rTol);
     end
 catch ME
     msg = sprintf('%s: %s',ME.identifier,ME.message);
 end
 end
+
+
+function [cTol,mTol,rTol] = mexValidationTolerances(frame,freshness,template)
+% Tight precision-aware tolerances.  SINGLE inputs necessarily use native
+% single reductions in the MATLAB reference; tiny reduction-order differences
+% are acceptable only when the integer correlation peak is identical.
+if isa(frame,'single') || isa(freshness,'single') || isa(template,'single')
+    cTol = 5e-6;
+    rTol = 5e-6;
+    mTol = 5e-4;
+else
+    cTol = 5e-10;
+    rTol = 5e-10;
+    mTol = 5e-9;
+end
+end
+
+
+function tf = sameCorrelationPeak(a,b)
+if isempty(a) || isempty(b) || ~isequal(size(a),size(b))
+    tf = false;
+    return
+end
+[~,ia] = max(a(:));
+[~,ib] = max(b(:));
+tf = isequal(ia,ib);
+end
+
 
 function tf = peakTouchesBoundary(C)
 if isempty(C) || all(isnan(C),'all')
