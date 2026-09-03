@@ -167,8 +167,11 @@ end
 
 function [cTol,mTol,rTol] = tolerancesForSignature(signature)
 if contains(signature,'single')
-    cTol = 5e-6;
-    rTol = 5e-6;
+    % Real SLAP2 single-precision frames can differ at O(1e-5) between
+    % MATLAB and MEX purely because the reduction order differs. Keep the
+    % integer-peak requirement exact and subpixel-motion tolerance at 5e-4.
+    cTol = 5e-5;
+    rTol = 5e-5;
     mTol = 5e-4;
 else
     cTol = 5e-10;

@@ -38,7 +38,7 @@ for caseIx = 1:size(classDefs,1)
         verifyEqual(testCase,iMex,iRef,'Peak index must be identical.');
 
         if any(strcmp(classDefs(caseIx,:),'single'))
-            cTol = 5e-6; rTol = 5e-6; mTol = 5e-4;
+            cTol = 5e-5; rTol = 5e-5; mTol = 5e-4;
         else
             cTol = 5e-10; rTol = 5e-10; mTol = 5e-9;
         end
