@@ -147,6 +147,8 @@ aData = params;
 % main frame-registration loop.
 xcorrOptsExact = makeWeightedXcorrOptions(aData,false);
 xcorrOptsMain = makeWeightedXcorrOptions(aData,aData.useAdaptiveWeightedXcorr);
+initXcorrStats = newXcorrStats();
+mainXcorrStats = newXcorrStats();
 
 disp(['Aligning: ' fnW ' of ' [trialTable.datadr filesep fn]])
 fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
@@ -298,11 +300,14 @@ tInitialCorr = tic;
 for f1 = 1:nInitFrames
     for f2 = (f1+1):nInitFrames
         if aData.useFastWeightedXcorr
-            [motion(:,f1,f2),R(f1,f2)] = xcorr2_nans_weighted_dispatch( ...
+            [motion(:,f1,f2),R(f1,f2),~,xcorrInfo] = xcorr2_nans_weighted_dispatch( ...
                 Y(:,:,f2),freshness(:,:,f2),Y(:,:,f1),[0;0],3,xcorrOptsExact);
+            initXcorrStats = accumulateXcorrStats(initXcorrStats,xcorrInfo);
         else
             [motion(:,f1,f2),R(f1,f2)] = xcorr2_nans_weighted( ...
                 Y(:,:,f2),freshness(:,:,f2),Y(:,:,f1),[0;0],3);
+            initXcorrStats.dispatchCalls = initXcorrStats.dispatchCalls + 1;
+            initXcorrStats.legacyCalls = initXcorrStats.legacyCalls + 1;
         end
         motion(:,f2,f1) = -motion(:,f1,f2);
         R(f2,f1) = R(f1,f2);
@@ -518,6 +523,8 @@ try
         if params.refStackTemplate
             T = T0(aData.maxshift-initR + (1:sz(1)),aData.maxshift-initC+(1:sz(2)),:);
             [motOutput,corrCoeff] = xcorr2_nans3d(M,T,[0;0],aData.clipShift);
+            mainXcorrStats.dispatchCalls = mainXcorrStats.dispatchCalls + 1;
+            mainXcorrStats.otherCalls = mainXcorrStats.otherCalls + 1;
             motionDSz(DSframeIx) = motOutput(3);
         else
             % Compose only the currently-used crop of the static and
@@ -535,11 +542,14 @@ try
             T(templateOnly) = adaptiveCrop(templateOnly);
 
             if aData.useFastWeightedXcorr
-                [motOutput,corrCoeff] = xcorr2_nans_weighted_dispatch( ...
+                [motOutput,corrCoeff,~,xcorrInfo] = xcorr2_nans_weighted_dispatch( ...
                     M,freshness,T,[0;0],aData.clipShift,xcorrOptsMain);
+                mainXcorrStats = accumulateXcorrStats(mainXcorrStats,xcorrInfo);
             else
                 [motOutput,corrCoeff] = xcorr2_nans_weighted( ...
                     M,freshness,T,[0;0],aData.clipShift);
+                mainXcorrStats.dispatchCalls = mainXcorrStats.dispatchCalls + 1;
+                mainXcorrStats.legacyCalls = mainXcorrStats.legacyCalls + 1;
             end
         end
         mainCorrSeconds = mainCorrSeconds + toc(tCorr);
@@ -730,6 +740,18 @@ writeNumericDatasetRobust(partialAdataPath, '/motionDSc', aData.motionDSc);
 writeNumericDatasetRobust(partialAdataPath, '/motionDSr', aData.motionDSr);
 writeNumericDatasetRobust(partialAdataPath, '/recNegErr', aData.recNegErr);
 writeNumericDatasetRobust(partialAdataPath, '/registrationFailed', aData.registrationFailed);
+totalXcorrStats = combineXcorrStats(initXcorrStats,mainXcorrStats);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrInitDispatchCalls', initXcorrStats.dispatchCalls);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMainDispatchCalls', mainXcorrStats.dispatchCalls);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMexAttempts', totalXcorrStats.mexAttempts);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMexSuccesses', totalXcorrStats.mexSuccesses);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMatlabFastCalls', totalXcorrStats.matlabFastCalls);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMexFallbacks', totalXcorrStats.mexFallbacks);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrLegacyCalls', totalXcorrStats.legacyCalls);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrOtherCalls', totalXcorrStats.otherCalls);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMainMexSuccesses', mainXcorrStats.mexSuccesses);
+writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMainMatlabFastCalls', mainXcorrStats.matlabFastCalls);
+
 writeNumericDatasetRobust(partialAdataPath, '/runtime/readerSetup_s', readerSetupSeconds);
 writeNumericDatasetRobust(partialAdataPath, '/runtime/initialRead_s', initialReadSeconds);
 writeNumericDatasetRobust(partialAdataPath, '/runtime/initialCorrelation_s', initialCorrSeconds);
@@ -763,12 +785,15 @@ movefile(partialAdataPath, adataPath, 'f');
 fprintf(['Registration timing %s: total %.1f min; core %.1f min; reader %.1f s (%s); ' ...
     'init read %.1f s; init corr %.1f s; getImages %.1f s; xcorr %.1f s; interp %.1f s; ' ...
     'template %.1f s; TIFF %.1f s; streamed H5 %.1f s; QC %.1f s; online motion %.1f s; ' ...
-    'final H5 %.1f s; block %d frames\n'], ...
+    'final H5 %.1f s; block %d frames; xcorr backend MEX %d/%d success/attempt; ' ...
+    'MATLAB-fast %d; MEX fallbacks %d; legacy %d; main MEX %d/%d dispatch\n'], ...
     fnW,prePublishWallSeconds/60,coreWallSeconds/60,readerSetupSeconds, ...
     ternary(readerCacheHit,'cache hit','new reader'),initialReadSeconds,initialCorrSeconds, ...
     mainReadSeconds,mainCorrSeconds,mainInterpSeconds,templateUpdateSeconds, ...
     tiffWriteSeconds,h5WriteSeconds,qcSeconds,onlineMotionSeconds,finalH5Seconds, ...
-    registrationBlockFrames);
+    registrationBlockFrames,totalXcorrStats.mexSuccesses,totalXcorrStats.mexAttempts, ...
+    totalXcorrStats.matlabFastCalls,totalXcorrStats.mexFallbacks,totalXcorrStats.legacyCalls, ...
+    mainXcorrStats.mexSuccesses,mainXcorrStats.dispatchCalls);
 end
 
 function workerTable = makeWorkerTable(trialTable, params, DMD_ix)
@@ -829,6 +854,16 @@ ensureNumericDataset(filename,'/recNegErr',[1,nDSframes],'double');
 ensureNumericDataset(filename,'/registrationFailed',[1,1],'int8');
 
 runtimeScalars = { ...
+    '/runtime/xcorrInitDispatchCalls', ...
+    '/runtime/xcorrMainDispatchCalls', ...
+    '/runtime/xcorrMexAttempts', ...
+    '/runtime/xcorrMexSuccesses', ...
+    '/runtime/xcorrMatlabFastCalls', ...
+    '/runtime/xcorrMexFallbacks', ...
+    '/runtime/xcorrLegacyCalls', ...
+    '/runtime/xcorrOtherCalls', ...
+    '/runtime/xcorrMainMexSuccesses', ...
+    '/runtime/xcorrMainMatlabFastCalls', ...
     '/runtime/readerSetup_s', ...
     '/runtime/initialRead_s', ...
     '/runtime/initialCorrelation_s', ...
@@ -1123,6 +1158,43 @@ opts.useAdaptive = logical(useAdaptive);
 opts.adaptiveRadius = params.adaptiveXcorrRadius;
 opts.adaptiveAuditEvery = params.adaptiveXcorrAuditEvery;
 opts.adaptiveMinCorrelation = params.adaptiveXcorrMinCorrelation;
+end
+
+
+function stats = newXcorrStats()
+%NEWXCORRSTATS Per-trial backend diagnostics; does not affect registration.
+stats = struct( ...
+    'dispatchCalls',0, ...
+    'mexAttempts',0, ...
+    'mexSuccesses',0, ...
+    'matlabFastCalls',0, ...
+    'mexFallbacks',0, ...
+    'legacyCalls',0, ...
+    'otherCalls',0);
+end
+
+
+function stats = accumulateXcorrStats(stats,info)
+%ACCUMULATEXCORRSTATS Add one dispatcher result, including adaptive subcalls.
+stats.dispatchCalls = stats.dispatchCalls + 1;
+fields = {'mexAttempts','mexSuccesses','matlabFastCalls','mexFallbacks'};
+for k = 1:numel(fields)
+    f = fields{k};
+    if isfield(info,f) && ~isempty(info.(f))
+        stats.(f) = stats.(f) + double(info.(f));
+    end
+end
+end
+
+
+function out = combineXcorrStats(a,b)
+%COMBINEXCORRSTATS Combine initial-template and main-loop diagnostics.
+out = newXcorrStats();
+fields = fieldnames(out);
+for k = 1:numel(fields)
+    f = fields{k};
+    out.(f) = a.(f) + b.(f);
+end
 end
 
 

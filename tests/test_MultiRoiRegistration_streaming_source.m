@@ -30,3 +30,15 @@ verifyTrue(testCase,contains(txt,"ensureNumericDataset(partialAdataPath, '/slap2
 verifyTrue(testCase,contains(txt,'writeHyperslabRobust(partialAdataPath'));
 verifyFalse(testCase,contains(txt,"h5create(partialAdataPath, '/slap2/varFacDS'"));
 end
+
+function testXcorrBackendDiagnosticsArePersistedAndPrinted(testCase)
+root = fileparts(fileparts(mfilename('fullpath')));
+txt = fileread(fullfile(root,'motion_correction','MultiRoiRegistration.m'));
+verifyTrue(testCase,contains(txt,"'/runtime/xcorrMexAttempts'"));
+verifyTrue(testCase,contains(txt,"'/runtime/xcorrMexSuccesses'"));
+verifyTrue(testCase,contains(txt,"'/runtime/xcorrMatlabFastCalls'"));
+verifyTrue(testCase,contains(txt,"'/runtime/xcorrMexFallbacks'"));
+verifyTrue(testCase,contains(txt,"'/runtime/xcorrMainMexSuccesses'"));
+verifyTrue(testCase,contains(txt,'xcorr backend MEX %d/%d success/attempt'));
+verifyTrue(testCase,contains(txt,'main MEX %d/%d dispatch'));
+end

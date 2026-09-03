@@ -22,6 +22,14 @@ verifyEqual(testCase,rGot,rRef,'AbsTol',0);
 verifyEqual(testCase,cGot,cRef,'AbsTol',0);
 verifyEqual(testCase,info.backend,'matlab-fast');
 verifyEqual(testCase,info.usedRadius,5);
+verifyEqual(testCase,info.mexAttempts,0);
+verifyEqual(testCase,info.mexSuccesses,0);
+verifyEqual(testCase,info.matlabFastCalls,1);
+verifyEqual(testCase,info.mexFallbacks,0);
+verifyFalse(testCase,info.mexRequested);
+verifyEqual(testCase,info.frameClass,'double');
+verifyEqual(testCase,info.freshnessClass,'double');
+verifyEqual(testCase,info.templateClass,'double');
 end
 
 function testAdaptiveBoundaryExpandsToExactFullSearch(testCase)
@@ -49,6 +57,25 @@ verifyEqual(testCase,rGot,rRef,'AbsTol',1e-12);
 verifyEqual(testCase,cGot,cRef,'AbsTol',1e-12);
 verifyTrue(testCase,info.expandedToFull);
 verifyEqual(testCase,info.usedRadius,5);
+end
+
+function testBackendDiagnosticsFieldsPresent(testCase)
+rng(210);
+frame = randn(19,23);
+template = randn(19,23);
+freshness = 0.5 + rand(19,23);
+opts = struct('useMex',false,'useAdaptive',false);
+[~,~,~,info] = xcorr2_nans_weighted_dispatch( ...
+    frame,freshness,template,[0;0],3,opts);
+expected = {'backend','mexRequested','mexInputCompatible', ...
+    'mexValidationRequested','mexValidationPassed', ...
+    'frameClass','freshnessClass','templateClass', ...
+    'mexAttempts','mexSuccesses','matlabFastCalls','mexFallbacks'};
+for k = 1:numel(expected)
+    verifyTrue(testCase,isfield(info,expected{k}), ...
+        sprintf('Missing diagnostics field: %s',expected{k}));
+end
+verifyEqual(testCase,info.matlabFastCalls,1);
 end
 
 function testProductionSourceNeverCompilesMex(testCase)

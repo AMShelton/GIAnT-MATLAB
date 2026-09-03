@@ -26,7 +26,7 @@ end
 opts = normalizeOptions(opts,dShift);
 
 persistent mexState mexFailureMessage mexWarningIssued ...
-    adaptiveCounter adaptiveDisabled adaptiveWarningIssued
+    adaptiveCounter adaptiveDisabled adaptiveWarningIssued backendReportKey
 % mexState: 0 unknown/not yet probed, 1 validated usable, -1 disabled.
 if isempty(mexState), mexState = 0; end
 if isempty(mexFailureMessage), mexFailureMessage = ''; end
@@ -34,16 +34,26 @@ if isempty(mexWarningIssued), mexWarningIssued = false; end
 if isempty(adaptiveCounter), adaptiveCounter = 0; end
 if isempty(adaptiveDisabled), adaptiveDisabled = false; end
 if isempty(adaptiveWarningIssued), adaptiveWarningIssued = false; end
+if isempty(backendReportKey), backendReportKey = ''; end
 
 info = struct('backend','','requestedRadius',double(dShift), ...
     'usedRadius',double(dShift),'expandedToFull',false, ...
     'adaptiveAudit',false,'adaptiveDisabled',adaptiveDisabled, ...
-    'mexFailureMessage',mexFailureMessage);
+    'mexFailureMessage',mexFailureMessage, ...
+    'mexRequested',logical(opts.useMex), ...
+    'mexInputCompatible',false, ...
+    'mexValidationRequested',logical(opts.validateMexOnFirstUse), ...
+    'mexValidationPassed',false, ...
+    'frameClass',class(frame), ...
+    'freshnessClass',class(freshness), ...
+    'templateClass',class(template), ...
+    'mexAttempts',0,'mexSuccesses',0,'matlabFastCalls',0,'mexFallbacks',0);
 
 % Probe only when MEX use was requested and the actual inputs are supported.
 % Unsupported input classes simply use MATLAB-fast without poisoning MEX for
 % a later compatible call.
 mexInputCompatible = compatibleMexInputs(frame,freshness,template);
+info.mexInputCompatible = mexInputCompatible;
 if opts.useMex && mexInputCompatible && mexState == 0
     [usable,msg] = probeMexBackend(opts.validateMexOnFirstUse, ...
         frame,freshness,template,shiftsCenter,dShift);
@@ -71,6 +81,10 @@ if opts.useMex && mexInputCompatible && mexState == 0
 end
 
 useMexNow = opts.useMex && mexInputCompatible && mexState == 1;
+info.mexValidationPassed = logical(opts.validateMexOnFirstUse && useMexNow);
+backendReportKey = reportBackendDecisionOnce( ...
+    backendReportKey,opts,mexInputCompatible,mexState,mexFailureMessage, ...
+    frame,freshness,template);
 
 % Adaptive search is deliberately a caller-controlled optional layer. The
 % exact full-radius path is the production default.
@@ -80,8 +94,9 @@ if useAdaptiveNow
     auditNow = opts.adaptiveAuditEvery > 0 && ...
         mod(adaptiveCounter,opts.adaptiveAuditEvery) == 0;
 
-    [motionSmall,rSmall,cSmall,backendSmall,mexFailed,mexMsg] = callBackend( ...
+    [motionSmall,rSmall,cSmall,backendSmall,mexFailed,mexMsg,countsSmall] = callBackend( ...
         frame,freshness,template,shiftsCenter,opts.adaptiveRadius,useMexNow);
+    info = addBackendCounts(info,countsSmall);
     if mexFailed
         [mexState,mexFailureMessage,mexWarningIssued] = disableMexAfterRuntimeFailure( ...
             mexMsg,mexWarningIssued);
@@ -102,8 +117,9 @@ if useAdaptiveNow
         return
     end
 
-    [motionFull,rFull,cFull,backendFull,mexFailed,mexMsg] = callBackend( ...
+    [motionFull,rFull,cFull,backendFull,mexFailed,mexMsg,countsFull] = callBackend( ...
         frame,freshness,template,shiftsCenter,dShift,useMexNow);
+    info = addBackendCounts(info,countsFull);
     if mexFailed
         [mexState,mexFailureMessage,mexWarningIssued] = disableMexAfterRuntimeFailure( ...
             mexMsg,mexWarningIssued);
@@ -134,8 +150,9 @@ if useAdaptiveNow
     return
 end
 
-[motion,R,C,backend,mexFailed,mexMsg] = callBackend( ...
+[motion,R,C,backend,mexFailed,mexMsg,counts] = callBackend( ...
     frame,freshness,template,shiftsCenter,dShift,useMexNow);
+info = addBackendCounts(info,counts);
 if mexFailed
     [mexState,mexFailureMessage,mexWarningIssued] = disableMexAfterRuntimeFailure( ...
         mexMsg,mexWarningIssued);
@@ -146,21 +163,26 @@ info.mexFailureMessage = mexFailureMessage;
 end
 
 
-function [motion,R,C,backend,mexFailed,mexMessage] = callBackend(frame,freshness,template,shiftsCenter,dShift,useMexNow)
+function [motion,R,C,backend,mexFailed,mexMessage,counts] = callBackend(frame,freshness,template,shiftsCenter,dShift,useMexNow)
 mexFailed = false;
 mexMessage = '';
+counts = struct('mexAttempts',0,'mexSuccesses',0,'matlabFastCalls',0,'mexFallbacks',0);
 if useMexNow
+    counts.mexAttempts = 1;
     try
         [motion,R,C] = xcorr2_nans_weighted_mex( ...
             frame,freshness,template,shiftsCenter,double(dShift));
+        counts.mexSuccesses = 1;
         backend = 'mex';
         return
     catch ME
         mexFailed = true;
+        counts.mexFallbacks = 1;
         mexMessage = sprintf('%s: %s',ME.identifier,ME.message);
         % Current call is recomputed with the existing MATLAB fast path.
         [motion,R,C] = xcorr2_nans_weighted_fast( ...
             frame,freshness,template,shiftsCenter,dShift);
+        counts.matlabFastCalls = 1;
         backend = 'matlab-fast-after-mex-failure';
         return
     end
@@ -168,7 +190,70 @@ end
 
 [motion,R,C] = xcorr2_nans_weighted_fast( ...
     frame,freshness,template,shiftsCenter,dShift);
+counts.matlabFastCalls = 1;
 backend = 'matlab-fast';
+end
+
+
+function info = addBackendCounts(info,counts)
+fields = {'mexAttempts','mexSuccesses','matlabFastCalls','mexFallbacks'};
+for k = 1:numel(fields)
+    f = fields{k};
+    info.(f) = info.(f) + counts.(f);
+end
+end
+
+
+function reportKey = reportBackendDecisionOnce(reportKey,opts,mexInputCompatible,mexState,mexFailureMessage,frame,freshness,template)
+%REPORTBACKENDDECISIONONCE Print a concise backend decision once per state.
+% Each process worker owns its own persistent state, so this naturally gives
+% one diagnostic line per worker. If the decision changes later (for example
+% an initially incompatible input is followed by a compatible one), the new
+% state is reported once as well.
+if ~opts.useMex
+    key = sprintf('disabled|%s|%s|%s',class(frame),class(freshness),class(template));
+    if ~strcmp(reportKey,key)
+        fprintf(['Weighted xcorr worker backend: frame=%s; freshness=%s; template=%s; ' ...
+            'MEX requested=no; backend=MATLAB-fast.\n'], ...
+            class(frame),class(freshness),class(template));
+        reportKey = key;
+    end
+    return
+end
+
+if ~mexInputCompatible
+    key = sprintf('incompatible|%s|%s|%s',class(frame),class(freshness),class(template));
+    if ~strcmp(reportKey,key)
+        fprintf(['Weighted xcorr worker backend: frame=%s; freshness=%s; template=%s; ' ...
+            'MEX skipped (requires real, nonsparse 2-D double inputs); backend=MATLAB-fast.\n'], ...
+            class(frame),class(freshness),class(template));
+        reportKey = key;
+    end
+    return
+end
+
+if mexState == 1
+    if opts.validateMexOnFirstUse
+        validationText = 'passed';
+    else
+        validationText = 'not requested';
+    end
+    key = sprintf('mex|%s|%s|%s|%s',class(frame),class(freshness),class(template),validationText);
+    if ~strcmp(reportKey,key)
+        fprintf(['Weighted xcorr worker backend: frame=%s; freshness=%s; template=%s; ' ...
+            'MEX validation=%s; backend=MEX.\n'], ...
+            class(frame),class(freshness),class(template),validationText);
+        reportKey = key;
+    end
+elseif mexState == -1
+    key = sprintf('fallback|%s|%s|%s|%s',class(frame),class(freshness),class(template),mexFailureMessage);
+    if ~strcmp(reportKey,key)
+        fprintf(['Weighted xcorr worker backend: frame=%s; freshness=%s; template=%s; ' ...
+            'MEX unusable (%s); backend=MATLAB-fast.\n'], ...
+            class(frame),class(freshness),class(template),mexFailureMessage);
+        reportKey = key;
+    end
+end
 end
 
 
