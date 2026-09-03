@@ -61,6 +61,12 @@ switch fnName
         params.registrationBlockMemoryGB = 4; tooltips.registrationBlockMemoryGB = 'Performance only: per-worker RAM budget for one batched registration read; registrationBlockFrames is capped automatically.';
         params.reuseSlap2Reader = true; tooltips.reuseSlap2Reader = 'Performance only: reuse a worker-local Slap2DataFile and parsed metadata across pseudo-trials from the same DAT.';
         params.useFastWeightedXcorr = true; tooltips.useFastWeightedXcorr = 'Use allocation-efficient weighted local correlation with the same correlation statistic and subpixel peak fit.';
+        params.useMexWeightedXcorr = true; tooltips.useMexWeightedXcorr = 'Performance only: use the optional exact C++ MEX weighted-xcorr backend when a validated binary is available. Falls back automatically to MATLAB fast xcorr if unavailable or if any MEX call fails.';
+        params.validateMexWeightedXcorr = true; tooltips.validateMexWeightedXcorr = 'Safety guardrail: numerically compare the MEX backend with the MATLAB fast implementation once per MATLAB process/worker before first use.';
+        params.useAdaptiveWeightedXcorr = false; tooltips.useAdaptiveWeightedXcorr = 'Optional/experimental performance mode: search a smaller radius first in the main registration loop and expand to the full clipShift on boundary/audit cases. OFF by default to preserve exhaustive-search behavior.';
+        params.adaptiveXcorrRadius = 2; tooltips.adaptiveXcorrRadius = 'Adaptive mode only: initial local search radius in pixels. Full clipShift is retained as fallback.';
+        params.adaptiveXcorrAuditEvery = 100; tooltips.adaptiveXcorrAuditEvery = 'Adaptive mode only: every N main-loop frames, force a full-radius audit. Disagreement disables adaptive mode on that worker.';
+        params.adaptiveXcorrMinCorrelation = -1; tooltips.adaptiveXcorrMinCorrelation = 'Adaptive mode only: expand to full search when the small-radius correlation is below this value. -1 effectively disables this trigger.';
         params.useFastInterpolation = true; tooltips.useFastInterpolation = 'Use translation-specialized bilinear interpolation; for two channels, coordinate/freshness lookup is shared.';
     case 'BandRegistration'
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
@@ -193,6 +199,57 @@ if strcmp(fnName, 'MultiRoiRegistration')
         params.useFastWeightedXcorr = true;
     end
     params.useFastWeightedXcorr = logicalScalar(params.useFastWeightedXcorr,'useFastWeightedXcorr');
+
+    if ~isfield(params,'useMexWeightedXcorr') || isempty(params.useMexWeightedXcorr)
+        params.useMexWeightedXcorr = true;
+    end
+    params.useMexWeightedXcorr = logicalScalar(params.useMexWeightedXcorr,'useMexWeightedXcorr');
+
+    if ~isfield(params,'validateMexWeightedXcorr') || isempty(params.validateMexWeightedXcorr)
+        params.validateMexWeightedXcorr = true;
+    end
+    params.validateMexWeightedXcorr = logicalScalar(params.validateMexWeightedXcorr,'validateMexWeightedXcorr');
+
+    if ~isfield(params,'useAdaptiveWeightedXcorr') || isempty(params.useAdaptiveWeightedXcorr)
+        params.useAdaptiveWeightedXcorr = false;
+    end
+    params.useAdaptiveWeightedXcorr = logicalScalar(params.useAdaptiveWeightedXcorr,'useAdaptiveWeightedXcorr');
+
+    if ~isfield(params,'adaptiveXcorrRadius') || isempty(params.adaptiveXcorrRadius)
+        params.adaptiveXcorrRadius = 2;
+    end
+    validateattributes(params.adaptiveXcorrRadius,{'numeric'}, ...
+        {'scalar','real','finite','nonnegative'},mfilename,'adaptiveXcorrRadius');
+    params.adaptiveXcorrRadius = min(round(double(params.adaptiveXcorrRadius)),params.clipShift);
+
+    if ~isfield(params,'adaptiveXcorrAuditEvery') || isempty(params.adaptiveXcorrAuditEvery)
+        params.adaptiveXcorrAuditEvery = 100;
+    end
+    validateattributes(params.adaptiveXcorrAuditEvery,{'numeric'}, ...
+        {'scalar','real','finite','nonnegative'},mfilename,'adaptiveXcorrAuditEvery');
+    params.adaptiveXcorrAuditEvery = round(double(params.adaptiveXcorrAuditEvery));
+
+    if ~isfield(params,'adaptiveXcorrMinCorrelation') || isempty(params.adaptiveXcorrMinCorrelation)
+        params.adaptiveXcorrMinCorrelation = -1;
+    end
+    validateattributes(params.adaptiveXcorrMinCorrelation,{'numeric'}, ...
+        {'scalar','real','finite','>=',-1,'<=',1},mfilename,'adaptiveXcorrMinCorrelation');
+    params.adaptiveXcorrMinCorrelation = double(params.adaptiveXcorrMinCorrelation);
+
+    if params.useAdaptiveWeightedXcorr
+        if params.clipShift < 2
+            error('setParams:AdaptiveXcorrSearchTooSmall', ...
+                'Adaptive weighted xcorr requires clipShift >= 2.');
+        end
+        if params.adaptiveXcorrRadius < 1 || params.adaptiveXcorrRadius >= params.clipShift
+            error('setParams:InvalidAdaptiveXcorrRadius', ...
+                'adaptiveXcorrRadius must be >=1 and strictly smaller than clipShift when adaptive xcorr is enabled.');
+        end
+        if params.adaptiveXcorrAuditEvery < 1
+            error('setParams:AdaptiveXcorrAuditRequired', ...
+                'adaptiveXcorrAuditEvery must be >=1 when adaptive xcorr is enabled.');
+        end
+    end
 
     if ~isfield(params,'useFastInterpolation') || isempty(params.useFastInterpolation)
         params.useFastInterpolation = true;

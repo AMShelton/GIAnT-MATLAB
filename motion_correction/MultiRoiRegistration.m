@@ -15,6 +15,23 @@ end
 
 params.startTime = char(datetime('now','TimeZone','local','Format','yyyy-MM-dd''T''HH:mm:ss.SSSZZZZZ'));
 
+% Weighted-xcorr acceleration is optional and must never make registration
+% dependent on a compiler or MEX binary. Production runs never compile here.
+if params.useFastWeightedXcorr && params.useMexWeightedXcorr
+    if exist('xcorr2_nans_weighted_mex','file') == 3
+        fprintf('Weighted xcorr: optional MEX backend found; each worker will validate it before first use.\n');
+    else
+        fprintf(['Weighted xcorr: MEX backend not found/loadable; using current MATLAB fast fallback. ' ...
+            'Registration will continue normally.\n']);
+    end
+end
+if params.useAdaptiveWeightedXcorr
+    warning('MultiRoiRegistration:AdaptiveXcorrEnabled', ...
+        ['Adaptive weighted xcorr is enabled. Initial-template correlation remains exhaustive; ' ...
+         'main-loop frames use radius %d with full +/- %d fallback/audits.'], ...
+        params.adaptiveXcorrRadius,params.clipShift);
+end
+
 %load the trial Table, which sets correspondences between the two DMDs
 trialTable = loadStructFromH5([trialtabledr filesep fn]);
 
@@ -124,6 +141,12 @@ fnW = ['E' int2str(trialTable.epoch(DMD_ix,f_ix)) 'T' int2str(f_ix) 'DMD' int2st
 firstLine = trialTable.slap2_info.first_line(DMD_ix,f_ix);
 lastLine = trialTable.slap2_info.last_line(DMD_ix, f_ix);
 aData = params;
+
+% Exact MEX/MATLAB dispatch options. The initial-template stage is always
+% exhaustive; adaptive search, if explicitly enabled, is restricted to the
+% main frame-registration loop.
+xcorrOptsExact = makeWeightedXcorrOptions(aData,false);
+xcorrOptsMain = makeWeightedXcorrOptions(aData,aData.useAdaptiveWeightedXcorr);
 
 disp(['Aligning: ' fnW ' of ' [trialTable.datadr filesep fn]])
 fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
@@ -275,8 +298,8 @@ tInitialCorr = tic;
 for f1 = 1:nInitFrames
     for f2 = (f1+1):nInitFrames
         if aData.useFastWeightedXcorr
-            [motion(:,f1,f2),R(f1,f2)] = xcorr2_nans_weighted_fast( ...
-                Y(:,:,f2),freshness(:,:,f2),Y(:,:,f1),[0;0],3);
+            [motion(:,f1,f2),R(f1,f2)] = xcorr2_nans_weighted_dispatch( ...
+                Y(:,:,f2),freshness(:,:,f2),Y(:,:,f1),[0;0],3,xcorrOptsExact);
         else
             [motion(:,f1,f2),R(f1,f2)] = xcorr2_nans_weighted( ...
                 Y(:,:,f2),freshness(:,:,f2),Y(:,:,f1),[0;0],3);
@@ -512,8 +535,8 @@ try
             T(templateOnly) = adaptiveCrop(templateOnly);
 
             if aData.useFastWeightedXcorr
-                [motOutput,corrCoeff] = xcorr2_nans_weighted_fast( ...
-                    M,freshness,T,[0;0],aData.clipShift);
+                [motOutput,corrCoeff] = xcorr2_nans_weighted_dispatch( ...
+                    M,freshness,T,[0;0],aData.clipShift,xcorrOptsMain);
             else
                 [motOutput,corrCoeff] = xcorr2_nans_weighted( ...
                     M,freshness,T,[0;0],aData.clipShift);
@@ -1090,6 +1113,18 @@ rec = sqrt(squeeze(mean(max(0,(chunkTemplate-chunkData)./templateGamma).^2, ...
     'includenan'),[1 2],'omitnan')));
 rec = reshape(rec,1,[]);
 end
+
+function opts = makeWeightedXcorrOptions(params,useAdaptive)
+%MAKEWEIGHTEDXCORROPTIONS Keep per-frame dispatch options compact/constant.
+opts = struct();
+opts.useMex = params.useMexWeightedXcorr;
+opts.validateMexOnFirstUse = params.validateMexWeightedXcorr;
+opts.useAdaptive = logical(useAdaptive);
+opts.adaptiveRadius = params.adaptiveXcorrRadius;
+opts.adaptiveAuditEvery = params.adaptiveXcorrAuditEvery;
+opts.adaptiveMinCorrelation = params.adaptiveXcorrMinCorrelation;
+end
+
 
 function out = ternary(condition,trueValue,falseValue)
 if condition

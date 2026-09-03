@@ -21,9 +21,13 @@ end
 
 testFiles = { ...
     fullfile(root,'tests','test_xcorr2_nans_weighted_fast.m'), ...
+    fullfile(root,'tests','test_xcorr2_nans_weighted_dispatch.m'), ...
     fullfile(root,'tests','test_getOnlineMotion.m'), ...
     fullfile(root,'tests','test_MultiRoiRegistration_streaming_source.m'), ...
     fullfile(root,'tests','test_saveStructToH5_robust.m')};
+if exist('xcorr2_nans_weighted_mex','file') == 3
+    testFiles{end+1} = fullfile(root,'tests','test_xcorr2_nans_weighted_mex.m');
+end
 results = runtests(testFiles);
 disp(results);
 if any([results.Failed])
@@ -48,6 +52,14 @@ legacySeconds = timeit(legacyFcn);
 fastSeconds = timeit(fastFcn);
 fprintf('xcorr synthetic benchmark: legacy %.3f s; fast %.3f s; speedup %.2fx\n', ...
     legacySeconds,fastSeconds,legacySeconds/fastSeconds);
+
+if exist('xcorr2_nans_weighted_mex','file') == 3
+    mexReport = validateWeightedXcorrMex('Strict',true,'RunBenchmark',true);
+    fprintf('xcorr MEX status: validated; speedup vs MATLAB-fast %.2fx\n',mexReport.speedup);
+else
+    fprintf(['xcorr MEX status: optional binary not present. This is NOT a test failure; ' ...
+        'MultiRoiRegistration will use the MATLAB-fast fallback.\n']);
+end
 end
 
 
