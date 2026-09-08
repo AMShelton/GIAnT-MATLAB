@@ -488,7 +488,10 @@ HPsurround = getSurround(HP,selPix,params);
 sinePreds = sinePredictors(num_time_points,params.baselineWindow_samps);
 %sqrtF = sqrt(1./Finv);
 %Yweighted = Y.*sqrtF; %multiply in the freshness effect
-opts = optimoptions('lsqlin','Display','none');
+% Pin the baseline solver to interior-point explicitly. This is MATLAB's
+% current default for lsqlin, but being explicit prevents this bounded
+% least-squares step from ever entering the trdog trust-region code path.
+opts = optimoptions('lsqlin','Algorithm','interior-point','Display','none');
 for pxIx = size(Y,1):-1:1
     scale = max(1e-3, mean(Y(pxIx,:)));
     nValid = size(H,2);
@@ -841,11 +844,15 @@ function [x,fval] = fminconTrustRegionRobust(fun,x0,lb,ub,opts,stage,params)
 % degenerate. The objective and constraints are not changed here. The first
 % call is byte-for-byte the normal GIAnT solve. If and only if that specific
 % internal error occurs, retry with successively tiny positive diagonal
-% shifts in the Hessian-vector product and a shorter PCG subproblem.
+% shifts in the Hessian-vector product and a shorter PCG subproblem. If all
+% trust-region retries hit the same MATLAB-internal failure, solve the same
+% bounded objective with interior-point/L-BFGS as a final escape hatch.
 %
 % Adding mu*I to the Hessian approximation is a standard numerical
 % regularization of the local Newton model; it does not alter the objective
-% being minimized or the source constraints.
+% being minimized or the source constraints. The final interior-point path
+% likewise keeps the objective, gradient, bounds, lambda, and data fixed;
+% only MATLAB's numerical optimizer changes for that rare failed subproblem.
 
 try
     [x,fval] = fmincon(fun,x0,[],[],[],[],lb,ub,[],opts);
@@ -854,52 +861,118 @@ catch ME
     if ~isTrdogQuad1dError(ME) || ~logical(params.solverRobustFallback)
         rethrow(ME);
     end
-    originalError = ME;
 end
 
 baseHM = opts.HessianMultiplyFcn;
-if isempty(baseHM)
-    rethrow(originalError);
-end
-
 retryLevels = double(params.solverRetryDamping(:).');
 retryLevels = retryLevels(isfinite(retryLevels) & retryLevels > 0);
-if isempty(retryLevels)
-    rethrow(originalError);
-end
 
-fprintf(2,['GIAnT solver warning: %s hit MATLAB trdog/quad1d. ' ...
-    'Retrying the same objective with Hessian damping.\n'],stage);
+if ~isempty(baseHM) && ~isempty(retryLevels)
+    fprintf(2,['GIAnT solver warning: %s hit MATLAB trdog/quad1d. ' ...
+        'Retrying the same objective with Hessian damping.\n'],stage);
 
-lastError = originalError;
-for retryIx = 1:numel(retryLevels)
-    relDamping = retryLevels(retryIx);
-    optsRetry = opts;
-    optsRetry.MaxPCGIter = max(1,min(double(opts.MaxPCGIter), ...
-        double(params.solverRetryPCGIter)));
+    for retryIx = 1:numel(retryLevels)
+        relDamping = retryLevels(retryIx);
+        optsRetry = opts;
+        optsRetry.MaxPCGIter = max(1,min(double(opts.MaxPCGIter), ...
+            double(params.solverRetryPCGIter)));
 
-    % For trust-region-reflective fmincon, MATLAB calls HessianMultiplyFcn
-    % with exactly two inputs: Hinfo and the vector/matrix to multiply.
-    optsRetry.HessianMultiplyFcn = @(Hinfo,v) ...
-        dampedHessianMultiply(baseHM,Hinfo,v,relDamping);
+        % For trust-region-reflective fmincon, MATLAB calls
+        % HessianMultiplyFcn with exactly two inputs: Hinfo and the
+        % vector/matrix to multiply.
+        optsRetry.HessianMultiplyFcn = @(Hinfo,v) ...
+            dampedHessianMultiply(baseHM,Hinfo,v,relDamping);
 
-    fprintf(2,'  retry %d/%d: relative damping %.3g, MaxPCGIter=%d\n', ...
-        retryIx,numel(retryLevels),relDamping,optsRetry.MaxPCGIter);
+        fprintf(2,'  retry %d/%d: relative damping %.3g, MaxPCGIter=%d\n', ...
+            retryIx,numel(retryLevels),relDamping,optsRetry.MaxPCGIter);
 
-    try
-        [x,fval] = fmincon(fun,x0,[],[],[],[],lb,ub,[],optsRetry);
-        fprintf(2,'  solver retry succeeded for %s\n',stage);
-        return
-    catch MEretry
-        lastError = MEretry;
-        if ~isTrdogQuad1dError(MEretry)
-            rethrow(MEretry);
+        try
+            [x,fval] = fmincon(fun,x0,[],[],[],[],lb,ub,[],optsRetry);
+            fprintf(2,'  solver retry succeeded for %s\n',stage);
+            return
+        catch MEretry
+            if ~isTrdogQuad1dError(MEretry)
+                rethrow(MEretry);
+            end
         end
     end
+else
+    fprintf(2,['GIAnT solver warning: %s hit MATLAB trdog/quad1d, but ' ...
+        'Hessian damping is unavailable; proceeding directly to ' ...
+        'interior-point/L-BFGS.\n'],stage);
 end
 
-fprintf(2,'GIAnT solver retries exhausted for %s\n',stage);
-rethrow(lastError);
+fprintf(2,['GIAnT solver trust-region retries exhausted for %s. ' ...
+    'Trying the same bounded objective with interior-point/L-BFGS.\n'],stage);
+
+try
+    [x,fval,exitflag] = fminconInteriorPointFallback(fun,x0,lb,ub,opts);
+catch MEfallback
+    fprintf(2,['GIAnT solver interior-point fallback failed for %s. ' ...
+        'Re-throwing fallback error.\n'],stage);
+    rethrow(MEfallback);
+end
+
+% A finite, bound-feasible point is usable even when exitflag==0 (for
+% example, MaxIterations reached). This mirrors ordinary fmincon behavior:
+% a nonpositive exitflag is not itself an exception. Invalid numerical
+% output is never accepted silently.
+validateFallbackSolution(x,fval,lb,ub,stage);
+fprintf(2,['GIAnT solver interior-point fallback completed for %s ' ...
+    '(exitflag=%d).\n'],stage,exitflag);
+end
+
+function [x,fval,exitflag] = fminconInteriorPointFallback(fun,x0,lb,ub,optsTrust)
+%FMINCONINTERIORPOINTFALLBACK Escape rare trdog/quad1d degeneracy.
+%
+% The scientific problem is unchanged: same objective, analytic gradient,
+% starting point, and bounds. Only the numerical optimizer changes after
+% every trust-region-reflective retry has failed with the specific MATLAB
+% internal trdog/quad1d error. L-BFGS keeps the rare fallback memory-bounded
+% for the large source-activity vectors used by SILo.
+
+maxIter = double(optsTrust.MaxIterations);
+if ~isscalar(maxIter) || ~isfinite(maxIter) || maxIter < 1
+    maxIter = 100;
+end
+
+optsIP = optimoptions('fmincon', ...
+    'Algorithm','interior-point', ...
+    'SpecifyObjectiveGradient',true, ...
+    'HessianApproximation','lbfgs', ...
+    'Display','none', ...
+    'MaxIterations',maxIter);
+
+% TypicalX is harmless with an analytic gradient and preserves any scaling
+% information the caller supplied. Guard the assignment for compatibility
+% across Optimization Toolbox releases.
+try
+    if ~isempty(optsTrust.TypicalX)
+        optsIP.TypicalX = optsTrust.TypicalX;
+    end
+catch
+end
+
+[x,fval,exitflag] = fmincon(fun,x0,[],[],[],[],lb,ub,[],optsIP);
+end
+
+function validateFallbackSolution(x,fval,lb,ub,stage)
+%VALIDATEFALLBACKSOLUTION Never accept non-finite or infeasible fallback output.
+
+if ~isfinite(fval) || any(~isfinite(x(:)))
+    error('GIAnT:InvalidSolverFallbackResult', ...
+        '%s interior-point fallback returned non-finite output.',stage);
+end
+
+xv = x(:);
+lbv = lb(:);
+ubv = ub(:);
+scale = max(1,max(abs(xv)));
+boundTol = max(1e-10,1e-8*scale);
+if any(xv < lbv-boundTol) || any(xv > ubv+boundTol)
+    error('GIAnT:InvalidSolverFallbackResult', ...
+        '%s interior-point fallback returned a bound-infeasible solution.',stage);
+end
 end
 
 function Hv = dampedHessianMultiply(baseHM,Hinfo,v,relativeDamping)

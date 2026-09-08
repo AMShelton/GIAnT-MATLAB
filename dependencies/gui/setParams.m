@@ -43,7 +43,7 @@ switch fnName
         params.selectedInterpBatchFrames = 64; tooltips.selectedInterpBatchFrames = 'Performance only: number of frames vectorized together during sparse motion interpolation.';
         params.reuseSlap2Reader = true; tooltips.reuseSlap2Reader = 'Performance only: reuse one Slap2DataFile/metadata object across pseudo-trials from the same DAT file.';
         params.savePerTrialSummary = true; tooltips.savePerTrialSummary = 'Save per_trial_summary.h5. Disable to avoid the very large full-FOV per-trial footprint file.';
-        params.solverRobustFallback = true; tooltips.solverRobustFallback = 'Retry only the rare MATLAB trdog/quad1d trust-region numerical failure with a damped Hessian approximation.';
+        params.solverRobustFallback = true; tooltips.solverRobustFallback = 'Handle only the rare MATLAB trdog/quad1d trust-region numerical failure: retry with Hessian damping, then use the same bounded objective with interior-point/L-BFGS if trust-region retries are exhausted.';
         params.solverRetryDamping = [1e-8 1e-6 1e-4]; tooltips.solverRetryDamping = 'Relative Hessian diagonal damping levels tried only after a trdog/quad1d failure.';
         params.solverRetryPCGIter = 3; tooltips.solverRetryPCGIter = 'Max PCG iterations used only for a trdog/quad1d solver retry.';
     case 'MultiRoiRegistration'

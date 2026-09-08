@@ -23,3 +23,8 @@ __pycache__/
 *.pyc
 .idea/
 .vscode/
+
+# Locally compiled MATLAB MEX binaries
+*.mexw64
+*.mexa64
+*.mexmaci64
