@@ -65,31 +65,9 @@ Installer v2 **does not modify shared SILo runtime code** such as:
 
 Those parts have evolved across GIAnT versions and forks, including optimized versions. The integration now patches only the backend-control and detector boundary. This is why v2 works when the local SILo has already been runtime-optimized.
 
-## Benchmark helper
+## Comparing source-detection methods
 
-```matlab
-common = struct( ...
-    'isSLAP2', true, ...
-    'drawUserRois', false, ...
-    'nWorkers', 8);
-
-r = runSourceDetectionBenchmark( ...
-    pathToTrialTable, common, YOUR_ORIGINAL_MAX_SYNAPSE_DENSITY);
-```
-
-Each SILo run first writes GIAnT's conventional files. The wrapper then snapshots them as:
-
-```text
-experiment_summary_silo.h5
-per_trial_summary_silo.h5
-source_detection_diagnostics_silo.mat
-
-experiment_summary_summarize_loco.h5
-per_trial_summary_summarize_loco.h5
-source_detection_diagnostics_summarize_loco.mat
-```
-
-After the paired benchmark, the ordinary `experiment_summary.h5` and `per_trial_summary.h5` are restored to the **native SILo** snapshots, and the trial-table `analysis_params` is restored to native SILo parameters. Thus benchmarking does not silently leave the alternative detector as the default downstream product.
+The standalone `runSourceDetectionBenchmark.m` wrapper was removed during repository cleanup. To compare backends, run `SILo` separately with the two `sourceDetectionMethod` values shown above, using the same input and other parameters. Save each run's outputs under a distinct output path or archive them before the next run, since conventional output names may be overwritten. Preserve the original `maxSynapseDensity` for comparisons to historical LoCo results.
 
 ## Diagnostic MAT contents
 

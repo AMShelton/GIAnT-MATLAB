@@ -100,6 +100,22 @@ The SLAP2 processing path includes several optimizations for large multi-ROI rec
 
 SILo prints coarse localization, raw `getImages`, selected-pixel interpolation, and high-resolution extraction timings to make bottlenecks visible on real datasets. Local SSD storage is strongly recommended for raw SLAP2 data and GIAnT outputs. For motion-heavy recordings, choose `clipShift` and `maxshift` from motion QC rather than reducing sampling or source-extraction quality to gain speed.
 
+## Recommended SLAP2 entry point
+
+For interactive, multi-ROI SLAP2 processing, `processSLAP2` runs trial-table construction, `MultiRoiRegistration`, and `SILo` in sequence. It displays the registration and extraction parameter dialogs and supports reuse or rebuilding of an existing trial table.
+
+```matlab
+addpath(genpath('/path/to/GIAnT-MATLAB'));
+[trialTable, mocoParams, siloParams] = processSLAP2( ...
+    '/path/to/slap2', '/path/to/processed', false);
+```
+
+The first directory is the SLAP2 acquisition root (including `dynamic_data/` and `static_data/` in the AIND layout). The second is the output directory. The third argument controls whether all discovered acquisitions are combined into one epoch; leave it `false` for the usual epoch-selection workflow. Check the returned parameters, outputs and motion QC before using the extracted signals. `processSLAP2` currently requires a graphical MATLAB session for its parameter dialogs; it is **not a headless cloud entry point**.
+
+For a clean environment, verify that required external packages are on the MATLAB path, and that the Optimization Toolbox license can actually be checked out (`license('checkout','Optimization_Toolbox')`). The optional weighted cross-correlation MEX accelerator is built locally using `dependencies/alignment/buildWeightedXcorrMex.m`; see `docs/MULTIROI_XCORR_MEX.md` for fallback and validation details. Do not distribute a locally compiled Windows MEX binary as a portable Code Ocean dependency.
+
+See [Code Ocean migration assessment](docs/CODE_OCEAN_MIGRATION.md) for requirements, unresolved integration decisions and proposed validation gates. The repository does not include a standalone installation-audit or automated test suite. Confirm dependencies in MATLAB and validate results on representative datasets before deployment.
+
 ## Epoch and analysis trial
 
 For each experiment we break the data into **epochs** and **analysis trials**.
