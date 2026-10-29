@@ -31,6 +31,16 @@ function [trialTable, mocoParams, siloParams] = processSLAP2(dr, savedr, useAllF
 % SILo. SILo is forced to run with isSLAP2 = true. If drawUserRois is true,
 % SILo will also open its normal annotation GUI during source extraction.
 
+% Put this repo's dependencies ahead of anything else on the MATLAB path
+here = fileparts(mfilename('fullpath'));
+repoRoot = here;
+while ~isfolder(fullfile(repoRoot,'dependencies')) && ~strcmp(repoRoot, fileparts(repoRoot))
+    repoRoot = fileparts(repoRoot);   % walk up until a 'dependencies' folder is found
+end
+assert(isfolder(fullfile(repoRoot,'dependencies')), 'No dependencies folder found above %s', here);
+addpath(genpath(fullfile(repoRoot,'dependencies')), '-begin');
+rehash;
+
 %% Resolve input/output directories
 if nargin < 1 || isempty(dr)
     dr = uigetdir(pwd, 'Select SLAP2 root directory');
