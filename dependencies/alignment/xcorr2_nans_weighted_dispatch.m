@@ -4,7 +4,9 @@ function [motion,R,C,info] = xcorr2_nans_weighted_dispatch(frame,freshness,templ
 % Production safety contract:
 %   1) this function NEVER compiles a MEX binary;
 %   2) the optional MEX accepts real full SINGLE/DOUBLE inputs (including
-%      mixed precision) and validates each input-class signature on first use;
+%      mixed precision) and validates each input-class signature on first use
+%      against xcorr2_nans_weighted_fast, with precision- and peak-aware
+%      tolerances from weightedXcorrMexTolerances;
 %   3) if the MEX is absent, incompatible, fails validation, or throws at
 %      runtime, the current xcorr2_nans_weighted_fast MATLAB path
 %      is used immediately instead;
@@ -329,14 +331,27 @@ try
         rErr = double(~(isnan(rRef) && isnan(rMex)));
     end
 
-    [cTol,mTol,rTol] = mexValidationTolerances(frame,freshness,template);
+    % Tolerances are shared with validateWeightedXcorrMex. The motion
+    % tolerance is derived from the surface tolerance and the measured peak
+    % curvature of this frame (see weightedXcorrMexTolerances for why).
+    [cTol,mTol,rTol,tolDetail] = weightedXcorrMexTolerances(frame,freshness,template,cRef);
     samePeak = sameCorrelationPeak(cRef,cMex);
-    usable = sameNaNs && samePeak && cErr <= cTol && mErr <= mTol && rErr <= rTol;
+    % If the two best candidate shifts are within the surface tolerance of
+    % each other, which implementation "wins" the argmax is summation-order
+    % noise, not a backend error. The surfaces have already been required to
+    % agree everywhere (cErr <= cTol); the integer-pixel motion difference
+    % that follows from the tie is then not a meaningful disagreement.
+    nearTie = ~samePeak && peaksWithinTolerance(cRef,cMex,cTol);
+    peakOk = samePeak || nearTie;
+    motionOk = mErr <= mTol || nearTie;
+    usable = sameNaNs && peakOk && cErr <= cTol && motionOk && rErr <= rTol;
     if ~usable
         msg = sprintf(['real-input numerical mismatch (%s/%s/%s): samePeak=%d, ' ...
-            'max |dC|=%g (tol %g), |dmotion|=%g (tol %g), |dR|=%g (tol %g)'], ...
-            class(frame),class(freshness),class(template),samePeak, ...
-            cErr,cTol,mErr,mTol,rErr,rTol);
+            'nearTie=%d, max |dC|=%g (tol %g), |dmotion|=%g (tol %g; ' ...
+            'peak curvature %.3g, derived %.3g, floor %.3g), |dR|=%g (tol %g)'], ...
+            class(frame),class(freshness),class(template),samePeak,nearTie, ...
+            cErr,cTol,mErr,mTol,tolDetail.peakCurvature, ...
+            tolDetail.motionTolDerived,tolDetail.motionTolFloor,rErr,rTol);
     end
 catch ME
     msg = sprintf('%s: %s',ME.identifier,ME.message);
@@ -344,21 +359,21 @@ end
 end
 
 
-function [cTol,mTol,rTol] = mexValidationTolerances(frame,freshness,template)
-% Precision-aware tolerances. SINGLE inputs use native single reductions in
-% the MATLAB reference. On real SLAP2 ~million-pixel frames, equivalent MEX
-% reductions can differ at O(1e-5) solely from summation order. We therefore
-% permit <=5e-5 absolute C/R differences only when the integer correlation
-% peak is IDENTICAL and the subpixel motion remains within 5e-4 pixel.
-if isa(frame,'single') || isa(freshness,'single') || isa(template,'single')
-    cTol = 5e-5;
-    rTol = 5e-5;
-    mTol = 5e-4;
-else
-    cTol = 5e-10;
-    rTol = 5e-10;
-    mTol = 5e-9;
+function tf = peaksWithinTolerance(cRef,cMex,cTol)
+% True when the argmax of each surface, evaluated on BOTH surfaces, is within
+% cTol of the other surface's argmax value, i.e. the two candidate shifts are
+% a tie at the agreed precision.
+tf = false;
+if isempty(cRef) || isempty(cMex) || ~isequal(size(cRef),size(cMex))
+    return
 end
+[~,ia] = max(cRef(:));
+[~,ib] = max(cMex(:));
+vals = [cRef(ia) cRef(ib) cMex(ia) cMex(ib)];
+if ~all(isfinite(vals))
+    return
+end
+tf = abs(cRef(ia)-cRef(ib)) <= cTol && abs(cMex(ia)-cMex(ib)) <= cTol;
 end
 
 

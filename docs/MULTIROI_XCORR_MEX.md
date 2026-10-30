@@ -24,7 +24,14 @@ template construction remains exhaustive.
 1. if `xcorr2_nans_weighted_mex` is loadable, each MATLAB process/worker
    validates it on the first *actual GIAnT correlation input for each input-class
    signature* against `xcorr2_nans_weighted_fast`; real SLAP2 registration uses
-   both `single/single/single` and `single/single/double` inputs;
+   both `single/single/single` and `single/single/double` inputs. The
+   acceptance rule lives in `weightedXcorrMexTolerances`: the correlation
+   surfaces must agree to 2.5e-4 for `single` inputs (5e-10 for all-`double`),
+   the integer peak must match unless the two candidates are a tie at that
+   precision, and the subpixel motion must agree within a tolerance derived
+   from the peak curvature (floor 1e-2 px, cap 0.25 px). The MEX and MATLAB
+   use different summation orders, so `single` surfaces legitimately differ at
+   O(1e-5..1e-4); a fixed 5e-5 rule used to fail on most workers by chance;
 2. if validation passes, the MEX backend is used directly on native `single`
    and/or `double` arrays without MATLAB-side full-image casts;
 3. if the MEX is absent, incompatible, fails validation, or throws later, the

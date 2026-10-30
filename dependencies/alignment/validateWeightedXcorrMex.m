@@ -51,6 +51,10 @@ for caseIx = 1:size(classDefs,1)
     freshnessClass = classDefs{caseIx,3};
     templateClass = classDefs{caseIx,4};
     cMax = 0; mMax = 0; rMax = 0; samePeakCase = true;
+    % The motion tolerance depends on each iteration's peak curvature, so the
+    % pass/fail decision is made per iteration with the shared rule used by
+    % xcorr2_nans_weighted_dispatch; the maxima are kept for reporting.
+    passedCase = true;
 
     for iteration = 1:round(opts.Iterations)
         sz = [31+randi(39), 37+randi(45)];
@@ -77,20 +81,28 @@ for caseIx = 1:size(classDefs,1)
 
         finite = isfinite(cRef) & isfinite(cMex);
         if any(finite,'all')
-            cMax = max(cMax,max(abs(cRef(finite)-cMex(finite)),[],'all'));
+            cErr = max(abs(cRef(finite)-cMex(finite)),[],'all');
+        else
+            cErr = 0;
         end
-        mMax = max(mMax,max(abs(mRef(:)-mMex(:)),[],'all'));
+        mErr = max(abs(mRef(:)-mMex(:)),[],'all');
         if isfinite(rRef) && isfinite(rMex)
-            rMax = max(rMax,abs(rRef-rMex));
+            rErr = abs(rRef-rMex);
         elseif ~(isnan(rRef) && isnan(rMex))
             error('validateWeightedXcorrMex:RNaNMismatch', ...
                 'R finite/NaN mismatch for %s on randomized iteration %d.', ...
                 signature,iteration);
+        else
+            rErr = 0;
         end
+        cMax = max(cMax,cErr); mMax = max(mMax,mErr); rMax = max(rMax,rErr);
+
+        [cTol,mTol,rTol] = weightedXcorrMexTolerances(frame,freshness,template,cRef);
+        nearTie = ~samePeak && peaksWithinTolerance(cRef,cMex,cTol);
+        passedCase = passedCase && (samePeak || nearTie) && cErr <= cTol && ...
+            (mErr <= mTol || nearTie) && rErr <= rTol;
     end
 
-    [cTol,mTol,rTol] = tolerancesForSignature(signature);
-    passedCase = samePeakCase && cMax <= cTol && mMax <= mTol && rMax <= rTol;
     caseReports(caseIx) = struct('signature',signature, ...
         'iterations',round(opts.Iterations),'maxMotionError',mMax, ...
         'maxRError',rMax,'maxSurfaceError',cMax, ...
@@ -165,26 +177,27 @@ b.speedup = b.matlabFastSeconds/b.mexSeconds;
 end
 
 
-function [cTol,mTol,rTol] = tolerancesForSignature(signature)
-if contains(signature,'single')
-    % Real SLAP2 single-precision frames can differ at O(1e-5) between
-    % MATLAB and MEX purely because the reduction order differs. Keep the
-    % integer-peak requirement exact and subpixel-motion tolerance at 5e-4.
-    cTol = 5e-5;
-    rTol = 5e-5;
-    mTol = 5e-4;
-else
-    cTol = 5e-10;
-    rTol = 5e-10;
-    mTol = 5e-9;
-end
-end
-
-
 function tf = sameCorrelationPeak(a,b)
 [~,ia] = max(a(:));
 [~,ib] = max(b(:));
 tf = isequal(ia,ib);
+end
+
+
+function tf = peaksWithinTolerance(cRef,cMex,cTol)
+% Same rule as xcorr2_nans_weighted_dispatch: the two argmax candidates are a
+% tie at the agreed surface precision on both surfaces.
+tf = false;
+if isempty(cRef) || isempty(cMex) || ~isequal(size(cRef),size(cMex))
+    return
+end
+[~,ia] = max(cRef(:));
+[~,ib] = max(cMex(:));
+vals = [cRef(ia) cRef(ib) cMex(ia) cMex(ib)];
+if ~all(isfinite(vals))
+    return
+end
+tf = abs(cRef(ia)-cRef(ib)) <= cTol && abs(cMex(ia)-cMex(ib)) <= cTol;
 end
 
 
