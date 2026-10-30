@@ -67,6 +67,15 @@ assert(isequal(r.slap2.nested.deeper.value, s.slap2.nested.deeper.value), '3-D n
 assert(~isfield(r, 'emptyNumeric') && ~isfield(r, 'emptyCell'), 'empties skipped');
 assert(isequal(h5read(fnNew, '/row_major'), uint8(0)), 'row_major flag');
 
+% Regression: a struct read back with loadStructFromH5 carries row_major as a
+% field (this is how MultiRoiRegistration/SILo update trial_table.h5). It
+% must re-save without a duplicate-dataset error and keep a single flag.
+assert(isfield(r, 'row_major'), 'loadStructFromH5 is expected to surface /row_major');
+saveStructToH5(r, fnNew);
+r2 = loadStructFromH5(fnNew);
+assert(isequal(r2.row_major, uint8(0)), 'row_major preserved on re-save');
+assert(isequal(r2.filename, s.filename) && isequal(r2.epoch, s.epoch), 'content preserved on re-save');
+
 % ---- 2. schema identity vs. high-level h5create/h5write ------------------
 if exist(fnRef, 'file'), delete(fnRef); end
 writeReference(fnRef, '', s);

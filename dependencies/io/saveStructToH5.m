@@ -36,6 +36,15 @@ if ~isstruct(s) || ~isscalar(s)
     error('saveStructToH5:UnsupportedInput', 'Input must be a scalar struct.');
 end
 
+% /row_major is a format flag owned by this writer. A struct that came from
+% loadStructFromH5 (e.g. a trial table being updated) carries it as a field;
+% drop it so the flag is written exactly once below. The previous h5create
+% implementation only tolerated the duplicate because its "already exists"
+% error was swallowed by the retry loop before h5write overwrote the value.
+if isfield(s, 'row_major')
+    s = rmfield(s, 'row_major');
+end
+
 % Validate every value BEFORE touching the filesystem, so an unsupported
 % type cannot leave a half-written file behind.
 validateGroup('', s);
