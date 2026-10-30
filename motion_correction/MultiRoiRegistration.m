@@ -903,6 +903,7 @@ function ensureNumericDataset(filename,path,sz,dtype,varargin)
 maxCreateAttempts = 4;
 maxVisibilityChecks = 10;
 lastError = [];
+lastProbeError = [];
 
 for createAttempt = 1:maxCreateAttempts
     if h5DatasetExistsLocal(filename,path)
@@ -913,7 +914,8 @@ for createAttempt = 1:maxCreateAttempts
     catch ME
         lastError = ME;
     end
-    if waitForNumericDataset(filename,path,sz,maxVisibilityChecks)
+    [visible,lastProbeError] = waitForNumericDataset(filename,path,sz,maxVisibilityChecks);
+    if visible
         break
     end
     if createAttempt < maxCreateAttempts
@@ -921,11 +923,20 @@ for createAttempt = 1:maxCreateAttempts
     end
 end
 
-if ~waitForNumericDataset(filename,path,sz,maxVisibilityChecks)
-    if isempty(lastError)
-        detail = 'dataset never became visible after creation';
-    else
+[visible,probeError] = waitForNumericDataset(filename,path,sz,maxVisibilityChecks);
+if ~visible
+    if ~isempty(probeError)
+        lastProbeError = probeError;
+    end
+    if ~isempty(lastError)
         detail = lastError.message;
+    elseif ~isempty(lastProbeError)
+        % h5create never failed; report WHY the reopen/h5info kept failing
+        % instead of the uninformative "never became visible".
+        detail = sprintf('h5create succeeded but reopening the dataset failed: %s', ...
+            lastProbeError.message);
+    else
+        detail = 'dataset never became visible after creation';
     end
     error('MultiRoiRegistration:H5PrecreateFailed', ...
         'Failed to create/verify HDF5 dataset %s: %s',path,detail);
@@ -933,8 +944,9 @@ end
 end
 
 
-function tf = waitForNumericDataset(filename,path,expectedSize,maxChecks)
+function [tf,lastME] = waitForNumericDataset(filename,path,expectedSize,maxChecks)
 tf = false;
+lastME = [];
 for checkIx = 1:maxChecks
     try
         info = h5info(filename,path);
@@ -950,6 +962,7 @@ for checkIx = 1:maxChecks
         if strcmp(ME.identifier,'MultiRoiRegistration:H5DatasetSizeMismatch')
             rethrow(ME);
         end
+        lastME = ME;
         if checkIx < maxChecks
             pause(h5BackoffSeconds(checkIx));
         end
