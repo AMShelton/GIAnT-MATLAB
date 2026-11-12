@@ -32,6 +32,16 @@ switch fnName
         params.nWorkers = 12;           tooltips.nWorkers = 'number of parallel workers';
         params.drawUserRois = true;     tooltips.drawUserRois = 'pop up a GUI to annotate user ROIs?';  
         params.motionThresh = 2.5;       tooltips.motionThresh = 'decrease this to be more stringent on motion correction when censoring frames';
+        % Cross-trial alignment gate (which trials enter source extraction).
+        params.trialCorrRule = 'absolute';
+        tooltips.trialCorrRule = ['Trial validity rule after cross-trial alignment. absolute: keep trials whose mean image correlates with the ' ...
+            'template at >= minTrialCorr. outlier: legacy GIAnT rule, drop trials below median - trialCorrSigma*std (capped at trialCorrCap); ' ...
+            'on well-registered sessions this bar lands near 0.95 and discards blocks of good trials. none: keep every aligned trial.'];
+        tooltips.choiceLists.trialCorrRule = {'absolute','outlier','none'};
+        params.minTrialCorr = 0.80;      tooltips.minTrialCorr = 'absolute rule: minimum correlation of a trial mean image with the cross-trial template';
+        params.trialCorrSigma = 2;       tooltips.trialCorrSigma = 'outlier rule only: number of standard deviations below the median correlation';
+        params.trialCorrCap = 0.90;      tooltips.trialCorrCap = 'outlier rule only: cap on the derived correlation threshold';
+        params.minValidPixFrac = 0.5;    tooltips.minValidPixFrac = 'trial is dropped if its fraction of valid (non-censored) pixels is below this fraction of the mean across trials';
         params.analyzeHz = 200;          tooltips.analyzeHz = 'frame rate used for analysis (SLAP2 only)';
         params.nanThresh = 0.33;         tooltips.nanThresh = 'Max fraction of samples that can be NaN for including a pixel in analysis';
         params.discardInitial_s = 0;     tooltips.discardInitial_s = 'time in seconds to remove from analysis at the start of each trial, to account for warmup';
@@ -330,6 +340,17 @@ validateattributes(params.minPeakDistance,{'numeric'},{'scalar','real','finite',
 validateattributes(params.nWorkers,{'numeric'},{'scalar','real','finite','positive'},mfilename,'nWorkers');
 params.nWorkers = max(1,round(double(params.nWorkers)));
 validateattributes(params.motionThresh,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'motionThresh');
+% Cross-trial alignment gate: forward-compatible defaults for parameter files saved before it existed.
+if ~isfield(params,'trialCorrRule') || isempty(params.trialCorrRule), params.trialCorrRule = 'absolute'; end
+params.trialCorrRule = validatestring(char(string(params.trialCorrRule)), {'absolute','outlier','none'}, mfilename, 'trialCorrRule');
+if ~isfield(params,'minTrialCorr') || isempty(params.minTrialCorr), params.minTrialCorr = 0.80; end
+if ~isfield(params,'trialCorrSigma') || isempty(params.trialCorrSigma), params.trialCorrSigma = 2; end
+if ~isfield(params,'trialCorrCap') || isempty(params.trialCorrCap), params.trialCorrCap = 0.90; end
+if ~isfield(params,'minValidPixFrac') || isempty(params.minValidPixFrac), params.minValidPixFrac = 0.5; end
+validateattributes(params.minTrialCorr,{'numeric'},{'scalar','real','finite','>=',-1,'<=',1},mfilename,'minTrialCorr');
+validateattributes(params.trialCorrSigma,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'trialCorrSigma');
+validateattributes(params.trialCorrCap,{'numeric'},{'scalar','real','finite','>=',-1,'<=',1},mfilename,'trialCorrCap');
+validateattributes(params.minValidPixFrac,{'numeric'},{'scalar','real','finite','>=',0,'<=',1},mfilename,'minValidPixFrac');
 validateattributes(params.nanThresh,{'numeric'},{'scalar','real','finite','>',0,'<=',1},mfilename,'nanThresh');
 validateattributes(params.discardInitial_s,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'discardInitial_s');
 if params.isSLAP2

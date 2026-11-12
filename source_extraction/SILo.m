@@ -154,6 +154,7 @@ for DMDix = nDMDs:-1:1
         exptSummary.actIM{DMDix} = [];
         exptSummary.rawActIM{DMDix} = [];
         exptSummary.sourceDetectionInfo{DMDix} = struct();
+        exptSummary.trialQC{DMDix} = struct();
         exptSummary.selPix{DMDix} = [];
         exptSummary.sources{DMDix} = struct('R', [], 'C', [], 'V', []);
         exptSummary.userROIs{DMDix} = [];
@@ -350,10 +351,22 @@ for DMDix = nDMDs:-1:1
         actAligned(:,:,1,trialIx) = interp2(activIM(:,:,1,trialIx), cc+motOutput(2,trialIx), rr+motOutput(1,trialIx));
     end
 
-    %identify outliers in alignment quality to determine valid trials
-    corrThresh = min(0.90, median(corrCoeff, 'omitnan')-2*std(corrCoeff, 'omitmissing'));
+    %identify poorly aligned trials to determine valid trials.
+    % The historical rule (trialCorrRule = 'outlier') excluded a trial whose
+    % mean-image correlation with the template fell below median - 2*std
+    % (capped at 0.90). On well-registered sessions that distribution is
+    % tight, so the bar lands at ~0.95 and trials differing trivially from the
+    % template (bleaching, slight focus drift, the first trial) are thrown out
+    % in blocks; on the VIP dataset ~2/3 of sessions lost 5-90% of their
+    % trials this way (2026-11-12). The rule is now a parameter.
     actValidPix = squeeze(mean(~isnan(actAligned(:,:,1,:)), [1 2]));
-    validTrials= find(corrCoeff(:)>corrThresh & actValidPix(:)>mean(actValidPix)/2);
+    [validTrials, trialQC] = selectValidTrials(corrCoeff, actValidPix, keepTrials(DMDix,:), params);
+    exptSummary.trialQC{DMDix} = trialQC;
+    fprintf('Path %d trial validity (%s): %d/%d trials kept, corr threshold %.3f, valid-pixel threshold %.3f\n', ...
+        DMDix, trialQC.rule, numel(validTrials), sum(keepTrials(DMDix,:)), trialQC.corrThresh, trialQC.validPixThresh);
+    if ~isempty(trialQC.excludedTrials)
+        fprintf('    excluded trials: %s\n', mat2str(trialQC.excludedTrials(:)'));
+    end
     if isempty(validTrials)
         error('SILo:NoValidAlignedTrials', ...
             ['No trials survived SILo cross-trial alignment QC for imaging path %d. ' ...

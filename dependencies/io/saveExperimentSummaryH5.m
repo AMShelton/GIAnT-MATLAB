@@ -85,6 +85,45 @@ ps.user_rois = buildUserRois(exptSummary, DMDix, framesPerTrial, totalFrames, ..
     nTrials, imRows, imCols, numChannels, orderedChannels);
 ps.sources = buildSources(exptSummary, DMDix, framesPerTrial, totalFrames, ...
     nTrials, selPix, numChannels, orderedChannels);
+ps.trial_qc = buildTrialQC(exptSummary, DMDix, nTrials);
+end
+
+
+function tq = buildTrialQC(exptSummary, DMDix, nTrials)
+% Per-trial validity decision made by selectValidTrials (cross-trial
+% alignment gate): values, thresholds and the reason each trial was dropped.
+% Empty for summaries produced before the gate was parameterised.
+tq = struct();
+if ~isfield(exptSummary, 'trialQC') || numel(exptSummary.trialQC) < DMDix || isempty(exptSummary.trialQC{DMDix})
+    return
+end
+q = exptSummary.trialQC{DMDix};
+tq.rule = char(q.rule);
+tq.corr_thresh = double(q.corrThresh);
+tq.min_trial_corr = double(q.minTrialCorr);
+tq.trial_corr_sigma = double(q.trialCorrSigma);
+tq.trial_corr_cap = double(q.trialCorrCap);
+tq.min_valid_pix_frac = double(q.minValidPixFrac);
+tq.valid_pix_thresh = double(q.validPixThresh);
+tq.template_corr = padTo(double(q.corrCoeff), nTrials);
+tq.valid_pix_frac = padTo(double(q.actValidPix), nTrials);
+tq.trial_table_keep = padTo(double(q.keepTrials), nTrials);
+tq.valid = padTo(double(q.valid), nTrials);
+tq.excluded_trials = double(q.excludedTrials(:));
+tq.excluded_reason = strjoin(cellfun(@char, q.excludedReason, 'UniformOutput', false), ';');
+tq.corr_median = double(q.corrMedian);
+tq.corr_std = double(q.corrStd);
+tq.corr_min = double(q.corrMin);
+tq.legacy_outlier_thresh = double(q.legacyOutlierThresh);
+tq.n_valid_legacy_rule = double(q.nValidLegacyRule);
+end
+
+
+function v = padTo(v, n)
+v = v(:);
+if numel(v) < n
+    v(end+1:n) = NaN;
+end
 end
 
 
