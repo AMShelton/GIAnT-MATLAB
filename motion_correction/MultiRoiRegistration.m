@@ -342,7 +342,16 @@ for fix = 1:numel(frameInds)
 end
 tSum = sum(tFrames,3, 'omitnan');
 tN = sum(~isnan(tFrames),3);
-template = sqrt(tSum./tN);
+% The registration metric works on sqrt(photon counts) (variance
+% stabilisation). Raw SLAP2 pixels can be negative after the acquisition's
+% offset subtraction (seen on DMD2 of the 2025 iGluSnFR4f sessions, where
+% dim regions average below zero): sqrt of a negative mean made the template
+% complex, the MEX xcorr fell back to MATLAB, the shift came out complex and
+% interpFrameTranslationChannels failed in mod() - 68/93 trials of
+% 803121_2025-10-29 DMD2 aborted this way and were marked registrationFailed.
+% Clip at zero for the metric only (as computeRecNegErrChunk already does);
+% the registered frames written to disk are not clipped.
+template = sqrt(max(tSum./tN, 0));
 template(tN<minSamps) = nan;
 
 % These arrays are no longer needed once the initial template exists.
@@ -404,6 +413,7 @@ end
 
 motionDSr = nan(1,nDSframes);
 motionDSc = nan(1,nDSframes); %matrices to store the inferred motion
+negPixelCount = 0; finitePixelCount = 0;   % raw channel-1 pixels below zero (offset diagnostics)
 if params.refStackTemplate
     motionDSz = nan(1,nDSframes); %matrices to store the inferred motion
 end
@@ -514,10 +524,12 @@ try
             freshness = freshBlock(:,:,blockLocalIx);
             if numChannels==2
                 M2 = Mchannels(:,:,2);
-                M = sqrt(M1+M2);
+                M = sqrt(max(M1+M2, 0));
             else
-                M = sqrt(M1);
+                M = sqrt(max(M1, 0));
             end
+            negPixelCount = negPixelCount + nnz(M1 < 0);
+            finitePixelCount = finitePixelCount + nnz(~isnan(M1));
 
         if ~mod(DSframeIx,1000)
             disp([int2str(DSframeIx) ' of ' int2str(nDSframes)]);
@@ -653,7 +665,7 @@ try
         tSum(sel) = tSum(sel)+A(sel);
         tN(sel) = tN(sel)+1;
         ready = sel & tN>=minSamps;
-        template(ready) = sqrt(tSum(ready)./tN(ready));
+        template(ready) = sqrt(max(tSum(ready)./tN(ready), 0));
         notReady = sel & tN<minSamps;
         template(notReady) = nan;
         templateUpdateSeconds = templateUpdateSeconds + toc(tTemplate);
@@ -707,6 +719,11 @@ if isfield(params, 'maxMotionStd_px') && ~isempty(params.maxMotionStd_px)
 end
 aData.motionStd_px = motionStd;
 aData.maxMotionStd_px = maxMotionStd;
+aData.negativePixelFraction = negPixelCount / max(finitePixelCount, 1);
+if aData.negativePixelFraction > 0.25
+    warning(['%.0f%% of raw channel-1 pixels in ' fnW ' are negative: the acquisition offset for this path sits below zero. ' ...
+        'Registration clips them for its metric; check the PMT/offset settings for this DMD.'], 100*aData.negativePixelFraction);
+end
 if any(motionStd > maxMotionStd)
     aData.registrationFailed = true;
     warning(['Too much motion in file ' fnW ' (shift std ' num2str(motionStd, '%.2f ') ' px > ' num2str(maxMotionStd) ...
@@ -763,6 +780,7 @@ writeNumericDatasetRobust(partialAdataPath, '/recNegErr', aData.recNegErr);
 writeNumericDatasetRobust(partialAdataPath, '/registrationFailed', aData.registrationFailed);
 writeNumericDatasetRobust(partialAdataPath, '/motionStd_px', aData.motionStd_px);
 writeNumericDatasetRobust(partialAdataPath, '/maxMotionStd_px', aData.maxMotionStd_px);
+writeNumericDatasetRobust(partialAdataPath, '/negativePixelFraction', aData.negativePixelFraction);
 totalXcorrStats = combineXcorrStats(initXcorrStats,mainXcorrStats);
 writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrInitDispatchCalls', initXcorrStats.dispatchCalls);
 writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMainDispatchCalls', mainXcorrStats.dispatchCalls);
@@ -877,6 +895,7 @@ ensureNumericDataset(filename,'/recNegErr',[1,nDSframes],'double');
 ensureNumericDataset(filename,'/registrationFailed',[1,1],'int8');
 ensureNumericDataset(filename,'/motionStd_px',[1,2],'double');
 ensureNumericDataset(filename,'/maxMotionStd_px',[1,1],'double');
+ensureNumericDataset(filename,'/negativePixelFraction',[1,1],'double');
 
 runtimeScalars = { ...
     '/runtime/xcorrInitDispatchCalls', ...
