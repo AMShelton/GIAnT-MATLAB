@@ -785,6 +785,7 @@ writeNumericDatasetRobust(partialAdataPath, '/registrationFailed', aData.registr
 writeNumericDatasetRobust(partialAdataPath, '/motionStd_px', aData.motionStd_px);
 writeNumericDatasetRobust(partialAdataPath, '/maxMotionStd_px', aData.maxMotionStd_px);
 writeNumericDatasetRobust(partialAdataPath, '/negativePixelFraction', aData.negativePixelFraction);
+writeNumericDatasetRobust(partialAdataPath, '/clipKeepsNaN', int8(1));   % marker: NaN-preserving clip (de204b1+)
 totalXcorrStats = combineXcorrStats(initXcorrStats,mainXcorrStats);
 writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrInitDispatchCalls', initXcorrStats.dispatchCalls);
 writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMainDispatchCalls', mainXcorrStats.dispatchCalls);
@@ -900,6 +901,7 @@ ensureNumericDataset(filename,'/registrationFailed',[1,1],'int8');
 ensureNumericDataset(filename,'/motionStd_px',[1,2],'double');
 ensureNumericDataset(filename,'/maxMotionStd_px',[1,1],'double');
 ensureNumericDataset(filename,'/negativePixelFraction',[1,1],'double');
+ensureNumericDataset(filename,'/clipKeepsNaN',[1,1],'int8');
 
 runtimeScalars = { ...
     '/runtime/xcorrInitDispatchCalls', ...
