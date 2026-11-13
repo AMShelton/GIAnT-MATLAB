@@ -350,8 +350,10 @@ tN = sum(~isnan(tFrames),3);
 % interpFrameTranslationChannels failed in mod() - 68/93 trials of
 % 803121_2025-10-29 DMD2 aborted this way and were marked registrationFailed.
 % Clip at zero for the metric only (as computeRecNegErrChunk already does);
-% the registered frames written to disk are not clipped.
-template = sqrt(max(tSum./tN, 0));
+% the registered frames written to disk are not clipped. NaN must survive the
+% clip: MATLAB's max(NaN,0) is 0, which would turn every unscanned pixel into
+% data (wrong statistic, and ~12x slower xcorr) - use clipNegativeKeepNaN.
+template = sqrt(clipNegativeKeepNaN(tSum./tN));
 template(tN<minSamps) = nan;
 
 % These arrays are no longer needed once the initial template exists.
@@ -524,9 +526,9 @@ try
             freshness = freshBlock(:,:,blockLocalIx);
             if numChannels==2
                 M2 = Mchannels(:,:,2);
-                M = sqrt(max(M1+M2, 0));
+                M = sqrt(clipNegativeKeepNaN(M1+M2));
             else
-                M = sqrt(max(M1, 0));
+                M = sqrt(clipNegativeKeepNaN(M1));
             end
             if mod(DSframeIx, 50) == 1   % offset diagnostic on a 2% sample of frames
                 negPixelCount = negPixelCount + nnz(M1 < 0);
@@ -667,7 +669,7 @@ try
         tSum(sel) = tSum(sel)+A(sel);
         tN(sel) = tN(sel)+1;
         ready = sel & tN>=minSamps;
-        template(ready) = sqrt(max(tSum(ready)./tN(ready), 0));
+        template(ready) = sqrt(clipNegativeKeepNaN(tSum(ready)./tN(ready)));
         notReady = sel & tN<minSamps;
         template(notReady) = nan;
         templateUpdateSeconds = templateUpdateSeconds + toc(tTemplate);
@@ -1119,6 +1121,13 @@ if spTypeFlag
 else
     [IM,freshness] = S2data.getImages(channels,frames,dt,zPlane);
 end
+end
+
+function x = clipNegativeKeepNaN(x)
+%CLIPNEGATIVEKEEPNAN Replace negative values by zero, leaving NaN untouched.
+% max(x,0) must not be used here: MATLAB's two-input max ignores NaN, so
+% max(NaN,0) == 0 and unscanned pixels would become valid zeros.
+x(x < 0) = 0;
 end
 
 function Y = normalizeImageStack(Y,nChannels,nFrames)
