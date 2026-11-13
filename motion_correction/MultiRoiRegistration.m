@@ -528,8 +528,10 @@ try
             else
                 M = sqrt(max(M1, 0));
             end
-            negPixelCount = negPixelCount + nnz(M1 < 0);
-            finitePixelCount = finitePixelCount + nnz(~isnan(M1));
+            if mod(DSframeIx, 50) == 1   % offset diagnostic on a 2% sample of frames
+                negPixelCount = negPixelCount + nnz(M1 < 0);
+                finitePixelCount = finitePixelCount + nnz(~isnan(M1));
+            end
 
         if ~mod(DSframeIx,1000)
             disp([int2str(DSframeIx) ' of ' int2str(nDSframes)]);
