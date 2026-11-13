@@ -165,6 +165,19 @@ if opts.Verbose
         fprintf('  DMD%d: %d trials; flagged before %d, after %d (%d accepted, %d newly flagged); %d without usable motion trace\n', ...
             DMDix, nnz(m), nnz(report.flag_before(m)), nnz(report.flag_after(m)), ...
             nnz(report.flag_before(m) & ~report.flag_after(m)), nnz(~report.flag_before(m) & report.flag_after(m)), nnz(m & ~ev));
+        if any(m & ~ev)
+            % these trials were not flagged for motion: registration aborted
+            % (exception, 'very short' file, isReVolt detection) before any
+            % output was written, or the alignment file has since been removed.
+            % Re-running MultiRoiRegistration on this trial table re-attempts
+            % only these (finished trials are skipped) and prints the error.
+            for rs = {'no_alignment_file', 'no_motion_trace'}
+                k = m & strcmp(report.reason, rs{1});
+                if any(k)
+                    fprintf('        %s: %d trials (%s)\n', rs{1}, nnz(k), compactList(report.trial(k)));
+                end
+            end
+        end
         if any(ev)
             sc = report.std_c_px(ev); sr = report.std_r_px(ev);
             fprintf('        shift std (px): col median %.2f max %.2f; row median %.2f max %.2f\n', ...
@@ -227,4 +240,19 @@ catch
     h5create(filename, path, size(val), 'Datatype', dtype);
 end
 h5write(filename, path, cast(val, dtype));
+end
+
+
+function txt = compactList(ix)
+%COMPACTLIST 1-based indices as '1-4, 7, 9-12'.
+ix = sort(ix(:))';
+if isempty(ix), txt = ''; return; end
+breaks = [true, diff(ix) > 1];
+starts = ix(breaks); ends = ix([breaks(2:end), true]);
+parts = cell(1, numel(starts));
+for k = 1:numel(starts)
+    if starts(k) == ends(k), parts{k} = sprintf('%d', starts(k));
+    else, parts{k} = sprintf('%d-%d', starts(k), ends(k)); end
+end
+txt = strjoin(parts, ', ');
 end
