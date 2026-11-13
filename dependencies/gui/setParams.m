@@ -60,6 +60,9 @@ switch fnName
         params.alignHz = 80; tooltips.alignHz = 'Frequency for generating downsampled aligned tiffs';
         params.maxshift = 40; tooltips.maxshift = 'Maximum frame offset,in pixels';
         params.clipShift = 5; tooltips.clipShift = 'Maximum allowable shift per frame';
+        params.maxMotionStd_px = 1.5; tooltips.maxMotionStd_px = ['A trial is flagged registrationFailed (and dropped by SILo) when the standard deviation of its ' ...
+            'downsampled shift trace exceeds this many pixels on either axis. 1.5 was the historical hard-coded value and removed blocks of well-registered ' ...
+            'trials on drifting recordings; the measured std is stored in the alignment file so flags can be recomputed with reflagRegistrationFailures.'];
         params.alpha = 0.005; tooltips.alpha = 'exponential decay of template per frame';%exponential time constant for template
         params.nWorkers = 8; tooltips.nWorkers = 'number of process workers; 8 is the tested default for MultiROI registration on this workstation class';
         params.overwriteExisting = false; tooltips.overwriteExisting = 'Realign and overwrite any existing files?';
@@ -165,6 +168,8 @@ if strcmp(fnName, 'MultiRoiRegistration')
     validateattributes(params.alignHz,{'numeric'},{'scalar','real','finite','positive'},mfilename,'alignHz');
     validateattributes(params.maxshift,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'maxshift');
     validateattributes(params.clipShift,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'clipShift');
+    if ~isfield(params,'maxMotionStd_px') || isempty(params.maxMotionStd_px), params.maxMotionStd_px = 1.5; end
+    validateattributes(params.maxMotionStd_px,{'numeric'},{'scalar','real','finite','positive'},mfilename,'maxMotionStd_px');
     if params.maxshift ~= round(params.maxshift) || params.clipShift ~= round(params.clipShift)
         error('setParams:NonIntegerMotionSearch','maxshift and clipShift must be integer pixel counts.');
     end

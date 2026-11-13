@@ -691,9 +691,26 @@ coreProfiledSeconds = readerSetupSeconds + initialReadSeconds + initialCorrSecon
     templateUpdateSeconds + tiffWriteSeconds + h5WriteSeconds + qcSeconds;
 coreWallSeconds = toc(alignWallStart);
 
-if std(motionDSc)>1.5 || std(motionDSr)>1.5
+% Motion-magnitude flag. Historically hard-coded at 1.5 px: a trial whose
+% downsampled shift trace had a standard deviation above 1.5 px on either
+% axis was marked registrationFailed, and verifyFiles then drops it from
+% source extraction even though the registration itself succeeded and the
+% outputs are saved. On the VIP SLAP2 dataset (2026-11-13) this removed
+% 5-100% of the trials in ~45% of DMD-sessions although the registrations
+% were fine. The threshold is now params.maxMotionStd_px (default 1.5 keeps
+% the old behaviour); the measured values are stored so the flag can be
+% recomputed afterwards (reflagRegistrationFailures.m) without re-registering.
+motionStd = [std(motionDSc), std(motionDSr)];   % plain std, as before: a NaN std never flags
+maxMotionStd = 1.5;
+if isfield(params, 'maxMotionStd_px') && ~isempty(params.maxMotionStd_px)
+    maxMotionStd = double(params.maxMotionStd_px);
+end
+aData.motionStd_px = motionStd;
+aData.maxMotionStd_px = maxMotionStd;
+if any(motionStd > maxMotionStd)
     aData.registrationFailed = true;
-    warning(['Too much motion in file ' fnW ' but will still save file']);
+    warning(['Too much motion in file ' fnW ' (shift std ' num2str(motionStd, '%.2f ') ' px > ' num2str(maxMotionStd) ...
+        ' px) but will still save file; flagged registrationFailed']);
 else
     aData.registrationFailed = false;
 end
@@ -744,6 +761,8 @@ writeNumericDatasetRobust(partialAdataPath, '/motionDSc', aData.motionDSc);
 writeNumericDatasetRobust(partialAdataPath, '/motionDSr', aData.motionDSr);
 writeNumericDatasetRobust(partialAdataPath, '/recNegErr', aData.recNegErr);
 writeNumericDatasetRobust(partialAdataPath, '/registrationFailed', aData.registrationFailed);
+writeNumericDatasetRobust(partialAdataPath, '/motionStd_px', aData.motionStd_px);
+writeNumericDatasetRobust(partialAdataPath, '/maxMotionStd_px', aData.maxMotionStd_px);
 totalXcorrStats = combineXcorrStats(initXcorrStats,mainXcorrStats);
 writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrInitDispatchCalls', initXcorrStats.dispatchCalls);
 writeNumericDatasetRobust(partialAdataPath, '/runtime/xcorrMainDispatchCalls', mainXcorrStats.dispatchCalls);
@@ -856,6 +875,8 @@ ensureNumericDataset(filename,'/motionDSc',[1,nDSframes],'double');
 ensureNumericDataset(filename,'/motionDSr',[1,nDSframes],'double');
 ensureNumericDataset(filename,'/recNegErr',[1,nDSframes],'double');
 ensureNumericDataset(filename,'/registrationFailed',[1,1],'int8');
+ensureNumericDataset(filename,'/motionStd_px',[1,2],'double');
+ensureNumericDataset(filename,'/maxMotionStd_px',[1,1],'double');
 
 runtimeScalars = { ...
     '/runtime/xcorrInitDispatchCalls', ...
