@@ -6,6 +6,12 @@ else
     [trialtabledr, fn, ext] = fileparts(fullPathToTrialTable); fn = [fn ext];
 end
 
+% Put this checkout ahead of anything else on the MATLAB path before the
+% first dependency call. SLAP2-Voltage-Extraction carries its own copies of
+% setParams, saveStructToH5 and others; when it is first on the path a direct
+% call of this function (outside processSLAP2, which pins the path itself)
+% resolves them there ('Unknown function name: SILo', 2026-11-15).
+pinThisCheckoutFirst(mfilename('fullpath'));
 %PARAMETER SETTING
 if nargin>1
     params = setParams('MultiRoiRegistration', paramsIn);
