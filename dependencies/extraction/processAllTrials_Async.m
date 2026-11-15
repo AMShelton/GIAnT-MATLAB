@@ -1,6 +1,12 @@
-function E = processAllTrials_Async(dr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params)
+function [E, failures] = processAllTrials_Async(dr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params)
 %PROCESSALLTRIALS_ASYNC Load high-resolution trials while source extraction
 % runs concurrently on a bounded thread pool.
+%
+% A trial whose load or source extraction throws no longer aborts the whole
+% imaging path: the error is printed, E{trial} is left empty (the summary
+% writer treats it as an invalid trial with 0 frames) and the trial is
+% reported in FAILURES (struct array with fields trial, stage, message) so
+% SILo can record the reason in trialQC.
 
 if ~isfield(params,'extractionWorkers') || isempty(params.extractionWorkers)
     params.extractionWorkers = min(8,params.nWorkers);
@@ -19,6 +25,7 @@ fprintf('High-resolution extraction thread workers: %d\n',targetWorkers);
 
 numDatasets = numel(fls);
 E = cell(numDatasets,1);
+failures = struct('trial', {}, 'stage', {}, 'message', {});
 
 if isempty(validTrials)
     error('GIAnT:NoValidTrialsForExtraction', ...
@@ -33,13 +40,23 @@ if params.isSLAP2 && isfield(params,'reuseSlap2Reader') && params.reuseSlap2Read
     readerCacheCleanup = onCleanup(@() getCachedSlap2Resources('',true,'clear')); %#ok<NASGU>
 end
 
+pendingTrial = [];          % trial whose extraction future is in flight
+resultsFuture = [];
 for i = 1:numel(validTrials)
     nLoad = validTrials(i);
 
     tLoad = tic;
-    CD = loadTrial(dr, fns{nLoad},fls(nLoad),els(nLoad),selPix, ...
-        discardFrames{nLoad},alignData{nLoad},meanAligned(:,:,:,nLoad), ...
-        motOutput(:,nLoad),roiData,params);
+    try
+        CD = loadTrial(dr, fns{nLoad},fls(nLoad),els(nLoad),selPix, ...
+            discardFrames{nLoad},alignData{nLoad},meanAligned(:,:,:,nLoad), ...
+            motOutput(:,nLoad),roiData,params);
+    catch ME
+        failures(end+1) = struct('trial', nLoad, 'stage', 'load', 'message', ME.message); %#ok<AGROW>
+        fprintf(2,'Trial %d: loading/interpolation failed; trial excluded.\n%s\n', nLoad, ...
+            getReport(ME,'extended','hyperlinks','off'));
+        E{nLoad} = [];
+        continue
+    end
     fprintf('Loaded/interpolated trial %d in %.1f s\n',nLoad,toc(tLoad));
 
     E{nLoad}.ROIs = CD.ROIs;
@@ -47,28 +64,41 @@ for i = 1:numel(validTrials)
     E{nLoad}.discardFrames = CD.discardFrames;
     E{nLoad}.frameLines = CD.frameLines;
 
-    if i>1
+    if ~isempty(pendingTrial)
         % Wait for the previous extraction only after loading the next trial.
         % With selected-pixel interpolation the client can perform I/O while
         % thread workers remain busy in the NMF solver.
-        prevTrial = validTrials(i-1);
-        tFetch = tic;
-        E{prevTrial} = processResult(resultsFuture,E{prevTrial},params);
-        fprintf('Finalized source extraction for trial %d in %.1f s wait time\n', ...
-            prevTrial,toc(tFetch));
+        [E, failures] = finalizeTrial(resultsFuture, pendingTrial, E, failures, params);
+        pendingTrial = [];
     end
 
     fprintf('Processing trial %d from %s\n',nLoad,fns{nLoad});
     Y = permute(CD.Yobs,[1 3 2]);
     resultsFuture = extractTrial(Y,CD.Finv,sources,any(selPix,3),params,alignData{nLoad});
+    pendingTrial = nLoad;
     clear CD Y;
 end
 
-lastTrial = validTrials(end);
+if ~isempty(pendingTrial)
+    [E, failures] = finalizeTrial(resultsFuture, pendingTrial, E, failures, params);
+end
+if ~isempty(failures)
+    fprintf(2,'%d of %d trial(s) failed source extraction: %s\n', numel(failures), numel(validTrials), mat2str([failures.trial]));
+end
+end
+
+function [E, failures] = finalizeTrial(resultsFuture, trial, E, failures, params)
 tFetch = tic;
-E{lastTrial} = processResult(resultsFuture,E{lastTrial},params);
-fprintf('Finalized source extraction for trial %d in %.1f s wait time\n', ...
-    lastTrial,toc(tFetch));
+try
+    E{trial} = processResult(resultsFuture, E{trial}, params);
+    fprintf('Finalized source extraction for trial %d in %.1f s wait time\n', trial, toc(tFetch));
+catch ME
+    msg = ME.message;
+    if ~isempty(ME.cause), msg = [msg ' | ' ME.cause{1}.message]; end
+    failures(end+1) = struct('trial', trial, 'stage', 'extract', 'message', msg);
+    fprintf(2,'Trial %d: source extraction failed; trial excluded (0 frames in the summary). %s\n', trial, msg);
+    E{trial} = [];
+end
 end
 
 % ---------------- Helper Functions ----------------

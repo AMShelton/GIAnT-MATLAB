@@ -327,6 +327,7 @@ for outerLoop = 1:params.nmfIter
     precision = 1./residVar;
     gramX = H_est' * (H_est .* precision);
     covX = inv(gramX); % uncertainty estimate for X
+    checkSourceCovariance(covX, params, sprintf('outerLoop=%d', outerLoop));
     Xnoise = sqrt(diag(covX)./params.tau_full);
     Xsnr = std(X_est_new, 0,2)./Xnoise;
 
@@ -408,6 +409,7 @@ residVar = sum(resid.^2.*residWeights,2)./sum(residWeights,2);
 precision = 1./residVar;
 gramX = H_est' * (H_est .* precision);
 covX = inv(gramX); % uncertainty estimate for X
+checkSourceCovariance(covX, params, 'final');
 Xnoise = sqrt(diag(covX)./params.tau_full);
 Xsnr = std(X_est_new, 0,2)./Xnoise;
 
@@ -1013,6 +1015,24 @@ if ~tf && ~isempty(ME.cause)
             return
         end
     end
+end
+end
+
+function checkSourceCovariance(covX, params, stage)
+%CHECKSOURCECOVARIANCE Fail clearly when the source covariance is unusable.
+% diag(covX) feeds sqrt(): a negative or non-finite diagonal (singular or
+% ill-conditioned footprint Gram matrix, e.g. a pixel with no negative
+% residuals giving infinite precision) would make Xnoise complex/NaN, which
+% then propagates into X, B and T and surfaces later as the opaque
+% 'analytic curvature coefficient became negative' error. Name the real cause.
+d = diag(covX);
+if any(~isfinite(d)) || any(d < 0)
+    ctx = '';
+    if isfield(params, 'solverContext'), ctx = [params.solverContext ': ']; end
+    error('GIAnT:InvalidSourceCovariance', ...
+        ['%ssource covariance is not positive/finite at %s (min diag %.3g, %d non-finite of %d). ' ...
+         'Footprint Gram matrix is singular or ill-conditioned; the trial cannot be extracted.'], ...
+        ctx, stage, min(d(isfinite(d))), nnz(~isfinite(d)), numel(d));
 end
 end
 

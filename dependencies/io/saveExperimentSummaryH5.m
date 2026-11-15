@@ -116,6 +116,17 @@ tq.corr_std = double(q.corrStd);
 tq.corr_min = double(q.corrMin);
 tq.legacy_outlier_thresh = double(q.legacyOutlierThresh);
 tq.n_valid_legacy_rule = double(q.nValidLegacyRule);
+% Per-trial failures that are now recorded instead of aborting the session
+% (2026-11-15): localization (too_many_discarded_frames / localization_failed)
+% and high-resolution source extraction (solver errors).
+if isfield(q, 'localizationReason')
+    tq.localization_reason = strjoin(cellfun(@char, q.localizationReason, 'UniformOutput', false), ';');
+    tq.localization_message = strjoin(cellfun(@char, q.localizationMessage, 'UniformOutput', false), ';');
+end
+if isfield(q, 'extractionFailedTrials')
+    tq.extraction_failed_trials = double(q.extractionFailedTrials(:));
+    tq.extraction_failed_message = strjoin(cellfun(@char, q.extractionFailedMessage, 'UniformOutput', false), ';');
+end
 end
 
 

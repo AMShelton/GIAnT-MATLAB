@@ -282,11 +282,12 @@ for DMDix = nDMDs:-1:1
     disp('Loading data and performing localizations...')
     localizationTimer = tic;
     mIM = cell(1, nTrials); aIM = cell(1,nTrials); alignData = cell(1, nTrials); peaks = cell(1, nTrials); discardFrames = cell(1,nTrials);
+    locStatus = cell(1, nTrials);
     fns = trialTable.motion_correction.fn_reg_ds(DMDix, :);
     if nWorkers>1
         parfor trialIx = 1:nTrials
             if keepTrials(DMDix,trialIx)
-                [mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}] = ...
+                [mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}, locStatus{trialIx}] = ...
                     loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params);
             end
         end
@@ -295,12 +296,25 @@ for DMDix = nDMDs:-1:1
         % the memory model has selected a single worker.
         for trialIx = 1:nTrials
             if keepTrials(DMDix,trialIx)
-                [mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}] = ...
+                [mIM{trialIx}, aIM{trialIx}, alignData{trialIx}, peaks{trialIx}, discardFrames{trialIx}, locStatus{trialIx}] = ...
                     loadAndProcessTrialAsync(mocodr, fns{trialIx}, numChannels, params);
             end
         end
     end
     fprintf('Path %d trial localization: %.1f min\n',DMDix,toc(localizationTimer)/60);
+    % Trials whose localization failed (or had too many censored frames) carry
+    % an all-NaN activity image; they fall out of cross-trial alignment as
+    % 'not_aligned' below and their specific reason is recorded in trialQC.
+    locFailed = false(1, nTrials); locReason = repmat({''}, 1, nTrials); locMessage = repmat({''}, 1, nTrials);
+    for trialIx = 1:nTrials
+        st = locStatus{trialIx};
+        if ~isempty(st) && isstruct(st) && ~st.ok
+            locFailed(trialIx) = true; locReason{trialIx} = st.reason; locMessage{trialIx} = st.message;
+        end
+    end
+    if any(locFailed)
+        fprintf('Path %d: %d trial(s) excluded at localization: %s\n', DMDix, nnz(locFailed), mat2str(find(locFailed)));
+    end
 
     %Assemble same-sized mean images from different-sized trial means
     szm1 = max(cellfun(@(x)size(x,1),mIM)); szm2 = max(cellfun(@(x)size(x,2), aIM));
@@ -361,6 +375,16 @@ for DMDix = nDMDs:-1:1
     % trials this way (2026-11-12). The rule is now a parameter.
     actValidPix = squeeze(mean(~isnan(actAligned(:,:,1,:)), [1 2]));
     [validTrials, trialQC] = selectValidTrials(corrCoeff, actValidPix, keepTrials(DMDix,:), params);
+    for trialIx = find(locFailed)
+        ix = find(trialQC.excludedTrials == trialIx, 1);
+        if ~isempty(ix)
+            trialQC.excludedReason{ix} = locReason{trialIx};
+        end
+    end
+    trialQC.localizationReason = locReason;
+    trialQC.localizationMessage = locMessage;
+    trialQC.extractionFailedTrials = [];
+    trialQC.extractionFailedMessage = {};
     exptSummary.trialQC{DMDix} = trialQC;
     fprintf('Path %d trial validity (%s): %d/%d trials kept, corr threshold %.3f, valid-pixel threshold %.3f\n', ...
         DMDix, trialQC.rule, numel(validTrials), sum(keepTrials(DMDix,:)), trialQC.corrThresh, trialQC.validPixThresh);
@@ -446,13 +470,29 @@ for DMDix = nDMDs:-1:1
             end
             fls = trialTable.slap2_info.first_line(DMDix,:);
             els = trialTable.slap2_info.last_line(DMDix,:);
-            E = processAllTrials_Async(trialDataDr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
+            [E, extractionFailures] = processAllTrials_Async(trialDataDr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
         else % non-SLAP2 (registered movies live under motion_correction)
             fls = cell(1,numel(fns));
             els = cell(1,numel(fns));
-            E = processAllTrials_Async(mocodr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
+            [E, extractionFailures] = processAllTrials_Async(mocodr, fns, fls, els, selPix, sources, discardFrames, alignData, meanAligned, motOutput, roiData, validTrials, params);
         end
         exptSummary.E(:,DMDix) = E;
+        if ~isempty(extractionFailures)
+            % A trial whose source extraction failed is an invalid trial
+            % (0 frames in experiment_summary.h5), with the solver message kept.
+            ft = [extractionFailures.trial];
+            fprintf(2, 'Path %d: source extraction failed for %d trial(s): %s\n', DMDix, numel(ft), mat2str(ft));
+            trialQC = exptSummary.trialQC{DMDix};
+            trialQC.valid(ft) = false;
+            reasonByTrial = repmat({''}, 1, nTrials);
+            reasonByTrial(trialQC.excludedTrials) = trialQC.excludedReason;
+            reasonByTrial(ft) = {'extraction_failed'};
+            trialQC.excludedTrials = find(~cellfun(@isempty, reasonByTrial));
+            trialQC.excludedReason = reasonByTrial(trialQC.excludedTrials);
+            trialQC.extractionFailedTrials = ft(:)';
+            trialQC.extractionFailedMessage = {extractionFailures.message};
+            exptSummary.trialQC{DMDix} = trialQC;
+        end
         fprintf('Path %d high-resolution extraction: %.1f min\n', ...
             DMDix,toc(highResTimer)/60);
     end

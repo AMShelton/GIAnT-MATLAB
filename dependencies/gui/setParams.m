@@ -32,6 +32,8 @@ switch fnName
         params.nWorkers = 12;           tooltips.nWorkers = 'number of parallel workers';
         params.drawUserRois = true;     tooltips.drawUserRois = 'pop up a GUI to annotate user ROIs?';  
         params.motionThresh = 2.5;       tooltips.motionThresh = 'decrease this to be more stringent on motion correction when censoring frames';
+        params.maxDiscardFrac = 0.4;     tooltips.maxDiscardFrac = ['A trial is excluded (reason too_many_discarded_frames) when more than this fraction of its frames is motion-censored; ' ...
+            'such trials cannot support the variance model in localizeSources_vIM (valid pixels >40% NaN) and used to abort the whole session.'];
         % Cross-trial alignment gate (which trials enter source extraction).
         params.trialCorrRule = 'absolute';
         tooltips.trialCorrRule = ['Trial validity rule after cross-trial alignment. absolute: keep trials whose mean image correlates with the ' ...
@@ -345,6 +347,8 @@ validateattributes(params.minPeakDistance,{'numeric'},{'scalar','real','finite',
 validateattributes(params.nWorkers,{'numeric'},{'scalar','real','finite','positive'},mfilename,'nWorkers');
 params.nWorkers = max(1,round(double(params.nWorkers)));
 validateattributes(params.motionThresh,{'numeric'},{'scalar','real','finite','nonnegative'},mfilename,'motionThresh');
+if ~isfield(params,'maxDiscardFrac') || isempty(params.maxDiscardFrac), params.maxDiscardFrac = 0.4; end
+validateattributes(params.maxDiscardFrac,{'numeric'},{'scalar','real','finite','>',0,'<=',1},mfilename,'maxDiscardFrac');
 % Cross-trial alignment gate: forward-compatible defaults for parameter files saved before it existed.
 if ~isfield(params,'trialCorrRule') || isempty(params.trialCorrRule), params.trialCorrRule = 'absolute'; end
 params.trialCorrRule = validatestring(char(string(params.trialCorrRule)), {'absolute','outlier','none'}, mfilename, 'trialCorrRule');
