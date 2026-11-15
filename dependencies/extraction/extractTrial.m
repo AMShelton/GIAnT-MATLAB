@@ -322,6 +322,7 @@ for outerLoop = 1:params.nmfIter
     residWeights = 1./Finv;
     residWeights(resid>=0) = 0;
     residVar = sum(resid.^2.*residWeights,2)./sum(residWeights,2);
+    residVar = fillUndefinedResidVar(residVar, params);
     % Equivalent to H_est' * diag(1./residVar) * H_est without
     % constructing the potentially large dense diagonal matrix.
     precision = 1./residVar;
@@ -404,6 +405,7 @@ resid = Y_obs - (B_est + H_est*X_est_new);
 residWeights = 1./Finv;
 residWeights(resid>=0) = 0;
 residVar = sum(resid.^2.*residWeights,2)./sum(residWeights,2);
+residVar = fillUndefinedResidVar(residVar, params);
 % Equivalent to H_est' * diag(1./residVar) * H_est without
 % constructing the potentially large dense diagonal matrix.
 precision = 1./residVar;
@@ -1016,6 +1018,29 @@ if ~tf && ~isempty(ME.cause)
         end
     end
 end
+end
+
+function residVar = fillUndefinedResidVar(residVar, params)
+%FILLUNDEFINEDRESIDVAR Give pixels without a residual-variance estimate a finite one.
+% residVar is estimated from negative residuals only (positive residuals may
+% be unmodelled activity). A pixel whose residuals are all >= 0 has zero
+% weight and residVar = 0/0 = NaN, which made precision NaN, the footprint
+% Gram matrix NaN and the source covariance undefined - the trial then failed
+% (2026-11-15, 803121_2025-11-01 DMD1 trial 3, single-source subproblem).
+% Such a pixel carries no information about the noise level; give it the
+% median variance of the pixels that do. Pixels with a finite estimate are
+% unchanged.
+bad = ~isfinite(residVar) | residVar <= 0;
+if ~any(bad)
+    return
+end
+if all(bad)
+    ctx = '';
+    if isfield(params, 'solverContext'), ctx = [params.solverContext ': ']; end
+    error('GIAnT:NoResidualVariance', ...
+        '%sno pixel has a usable residual-variance estimate (all residuals non-negative or non-finite).', ctx);
+end
+residVar(bad) = median(residVar(~bad));
 end
 
 function checkSourceCovariance(covX, params, stage)
