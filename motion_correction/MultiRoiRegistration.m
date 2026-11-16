@@ -165,7 +165,15 @@ fnwrite = [fnW '_REGISTERED_DOWNSAMPLED-' int2str(aData.alignHz) 'Hz.tif'];
 fnAdata = [fnW '_ALIGNMENTDATA.h5'];
 tifPath = fullfile(mocosavedr,fnwrite);
 adataPath = fullfile(mocosavedr,fnAdata);
-partialAdataPath = [adataPath '.partial'];
+% Partial outputs carry a per-attempt tag. When a worker crashes mid-trial,
+% Windows/SMB keeps its open files locked until the server times the handle
+% out; the retry on another worker then could neither delete nor recreate a
+% fixed '.partial' name ("Unable to access ... You might not have permission",
+% 803496_2025-07-30 E1T16DMD1, 2026-11-16). Unique names let the retry
+% proceed; stale partials are removed best-effort by cleanupIncompleteOutputPair.
+attemptTag = sprintf('%s-%d', datestr(now, 'yyyymmddHHMMSSFFF'), feature('getpid'));
+partialAdataPath = [adataPath '.partial-' attemptTag];
+partialTifPath = [tifPath '.partial-' attemptTag];
 registrationFailed = false;
 alignWallStart = tic;
 
@@ -176,7 +184,7 @@ if ~params.overwriteExisting && exist(adataPath,'file') && exist(tifPath,'file')
     disp([fnW ' of ' fn ' is already aligned; skipping' newline 'To force realign, set overwriteExisting=TRUE']);
     return
 end
-cleanupIncompleteOutputPair(adataPath,tifPath,partialAdataPath);
+cleanupIncompleteOutputPair(adataPath,tifPath);
 
 readerReady = false;
 lastReaderError = [];
@@ -482,7 +490,7 @@ precreateFinalAlignmentDatasets(partialAdataPath,numChannels,szOut,nDSframes,par
 
 % Open the TIFF only after the HDF5 schema preflight succeeds, so a schema
 % error cannot leave an open/half-created TIFF behind.
-fTIF = Fast_BigTiff_Write(tifPath,pixelscale,0);
+fTIF = Fast_BigTiff_Write(partialTifPath,pixelscale,0);
 
 varFacBuffer = nan(szOut(1), szOut(2), varFacBufferFrames, 'single');
 varFacBufferCount = 0;
@@ -693,11 +701,10 @@ catch ME
     catch
     end
     % Partial outputs must never satisfy the "already aligned" check.
-    if exist(partialAdataPath, 'file')
-        delete(partialAdataPath);
-    end
-    if exist(tifPath, 'file')
-        delete(tifPath);
+    for pth = {partialAdataPath, partialTifPath}
+        if exist(pth{1}, 'file')
+            try, delete(pth{1}); catch, end
+        end
     end
     disp(['REGISTRATION ERROR OCCURRED FOR FILE: ' fnW ' of ' fn newline 'YOU MAY NEED TO QC THIS FILE!' newline 'CONTINUING...'])
     return
@@ -830,8 +837,10 @@ writeNumericDatasetRobust(partialAdataPath, '/runtime/profiledTotal_s', profiled
 prePublishWallSeconds = toc(alignWallStart);
 writeNumericDatasetRobust(partialAdataPath, '/runtime/wall_s', prePublishWallSeconds);
 
-% Publish only a complete metadata file. The registered TIFF was closed
-% above; renaming the fully-populated partial H5 is the final commit step.
+% Publish only complete outputs. The registered TIFF was closed above and is
+% renamed first; renaming the fully-populated partial H5 is the final commit
+% step (verifyFiles requires both final names to exist).
+movefile(partialTifPath, tifPath, 'f');
 movefile(partialAdataPath, adataPath, 'f');
 
 fprintf(['Registration timing %s: total %.1f min; core %.1f min; reader %.1f s (%s); ' ...
@@ -886,12 +895,27 @@ end
 end
 
 
-function cleanupIncompleteOutputPair(adataPath,tifPath,partialAdataPath)
+function cleanupIncompleteOutputPair(adataPath,tifPath)
 %CLEANUPINCOMPLETEOUTPUTPAIR Remove outputs unless the final H5/TIFF pair is complete.
-paths = {partialAdataPath,adataPath,tifPath};
+% Final files of an incomplete pair are removed; partial files of earlier
+% attempts (any tag) are removed best-effort - one still locked by a crashed
+% worker is left behind with a warning and does not block this attempt.
+paths = {adataPath,tifPath};
 for ix = 1:numel(paths)
     if exist(paths{ix},'file')
         delete(paths{ix});
+    end
+end
+for base = {adataPath, tifPath}
+    stale = dir([base{1} '.partial*']);
+    for k = 1:numel(stale)
+        f = fullfile(stale(k).folder, stale(k).name);
+        try
+            delete(f);
+        catch ME
+            warning('MultiRoiRegistration:StalePartialLocked', ...
+                'Could not remove stale partial output %s (%s); continuing with a new attempt tag.', f, ME.message);
+        end
     end
 end
 end
