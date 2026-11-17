@@ -1,7 +1,18 @@
-function saveStructToH5(s, filename)
+function saveStructToH5(s, filename, prealloc)
 %SAVESTRUCTTOH5 Write a (possibly nested) scalar struct to an HDF5 file.
 %   SAVESTRUCTTOH5(s, filename) recursively maps MATLAB struct fields onto
 %   the HDF5 hierarchy:
+%
+%   SAVESTRUCTTOH5(s, filename, prealloc) additionally creates empty,
+%   fixed-size datasets to be filled later (h5write), under the SAME single
+%   file handle: prealloc is a struct array with fields path (e.g.
+%   '/runtime/wall_s'), size (MATLAB size vector), dtype (MATLAB class
+%   name) and optional chunk (MATLAB size vector; contiguous when absent).
+%   Intermediate groups are created as needed. This replaces the
+%   create-then-reopen cycle per dataset (h5create + h5info) that failed on
+%   SMB storage ("h5create succeeded but reopening the dataset failed:
+%   H5Fget_obj_count not a file id", 2026-11-16). The datasets are included
+%   in the single read-back check.
 %     - Scalar struct fields become HDF5 groups.
 %     - Cell arrays of char/string become variable-length string datasets.
 %     - char and string scalars/arrays become string datasets.
@@ -54,6 +65,14 @@ closer = onCleanup(@() closeFileIfOpen(fid));
 
 written = writeGroup(fid, '', s, cell(0, 2));   % {path, size} per dataset
 written = writeDataset(fid, '/row_major', uint8(0), written);
+if nargin >= 3 && ~isempty(prealloc)
+    for ix = 1:numel(prealloc)
+        spec = prealloc(ix);
+        chunk = [];
+        if isfield(spec, 'chunk'), chunk = spec.chunk; end
+        written = createEmptyDataset(fid, spec.path, spec.size, spec.dtype, chunk, written);
+    end
+end
 
 H5F.close(fid);
 clear closer
@@ -205,6 +224,35 @@ H5D.close(did);
 H5S.close(sid);
 H5T.close(tid);
 
+written(end+1, :) = {path, sz};
+end
+
+
+function written = createEmptyDataset(fid, path, sz, dtype, chunk, written)
+%CREATEEMPTYDATASET Create a fixed-size dataset (no data) on the open file.
+% Intermediate groups are created via the link-creation property list, so
+% '/runtime/wall_s' works whether or not '/runtime' exists yet.
+tname = nativeTypeName(dtype);
+if isempty(tname)
+    error('saveStructToH5:UnsupportedPreallocType', ...
+        'Cannot preallocate %s: unsupported class %s.', path, dtype);
+end
+sz = double(sz(:)');
+tid = H5T.copy(tname);
+sid = H5S.create_simple(numel(sz), fliplr(sz), []);
+lcpl = H5P.create('H5P_LINK_CREATE');
+H5P.set_create_intermediate_group(lcpl, 1);
+dcpl = H5P.create('H5P_DATASET_CREATE');
+if ~isempty(chunk)
+    chunk = double(chunk(:)');
+    H5P.set_chunk(dcpl, fliplr(min(chunk, sz)));
+end
+did = H5D.create(fid, path, tid, sid, lcpl, dcpl, 'H5P_DEFAULT');
+H5D.close(did);
+H5P.close(dcpl);
+H5P.close(lcpl);
+H5S.close(sid);
+H5T.close(tid);
 written(end+1, :) = {path, sz};
 end
 

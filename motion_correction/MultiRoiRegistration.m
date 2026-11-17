@@ -462,7 +462,6 @@ staticSave.slap2.viewC = viewC;
 staticSave.slap2.viewR = viewR;
 staticSave.slap2.trimRows = trimRows;
 staticSave.slap2.trimCols = trimCols;
-saveStructToH5(staticSave, partialAdataPath);
 
 % Use spatially tiled chunks so SILo can read localization tiles directly.
 % The old H x W x 1 layout was optimal for frame writes but forced SILo to
@@ -475,18 +474,18 @@ varChunkXY = max(16,round(aData.varFacChunkXY));
 varFacChunkSize = [min(varChunkXY,szOut(1)), ...
                    min(varChunkXY,szOut(2)), ...
                    varFacBufferFrames];
-ensureNumericDataset(partialAdataPath, '/slap2/varFacDS', ...
-    [szOut(1), szOut(2), nDSframes], 'single', ...
-    'ChunkSize', varFacChunkSize);
 
-% PRE-FLIGHT ALL FINAL HDF5 DATASETS BEFORE EXPENSIVE REGISTRATION.
-% The previous streaming implementation created these datasets only after
-% ~20+ minutes of work, then immediately called h5write. On network storage
-% that exposed an HDF5 metadata visibility failure (e.g. /runtime/wall_s was
-% reported missing immediately after h5create). Pre-creating and verifying
-% every destination here makes such failures immediate and leaves only
-% writes to already-existing datasets during finalization.
-precreateFinalAlignmentDatasets(partialAdataPath,numChannels,szOut,nDSframes,params.refStackTemplate);
+% PRE-FLIGHT ALL FINAL HDF5 DATASETS BEFORE EXPENSIVE REGISTRATION, in the
+% same single-handle write as the static metadata. Every destination that
+% finalization will h5write into (varFacDS, meanIM, motion traces, flags,
+% runtime scalars, online-motion vectors) is created here, so the rest of
+% registration performs writes into existing datasets only. The earlier
+% version created each dataset with h5create and verified it with h5info -
+% ~40 create/reopen cycles per trial on SMB storage, which intermittently
+% failed with "h5create succeeded but reopening the dataset failed" even
+% after retries (2026-11-16). One open, one close, one read-back instead.
+specs = alignmentDatasetSpecs(numChannels,szOut,nDSframes,params.refStackTemplate,varFacChunkSize);
+saveStructToH5(staticSave, partialAdataPath, specs);
 
 % Open the TIFF only after the HDF5 schema preflight succeeds, so a schema
 % error cannot leave an open/half-created TIFF behind.
@@ -921,17 +920,20 @@ end
 end
 
 
-function precreateFinalAlignmentDatasets(filename,numChannels,szOut,nDSframes,hasMotionZ)
-%PREFINALALIGNMENTDATASETS Fail fast if the final H5 schema cannot be created.
-ensureNumericDataset(filename,'/meanIM',[numChannels,szOut(1),szOut(2)],'single');
-ensureNumericDataset(filename,'/motionDSc',[1,nDSframes],'double');
-ensureNumericDataset(filename,'/motionDSr',[1,nDSframes],'double');
-ensureNumericDataset(filename,'/recNegErr',[1,nDSframes],'double');
-ensureNumericDataset(filename,'/registrationFailed',[1,1],'int8');
-ensureNumericDataset(filename,'/motionStd_px',[1,2],'double');
-ensureNumericDataset(filename,'/maxMotionStd_px',[1,1],'double');
-ensureNumericDataset(filename,'/negativePixelFraction',[1,1],'double');
-ensureNumericDataset(filename,'/clipKeepsNaN',[1,1],'int8');
+function specs = alignmentDatasetSpecs(numChannels,szOut,nDSframes,hasMotionZ,varFacChunkSize)
+%ALIGNMENTDATASETSPECS Every dataset finalization writes into, for saveStructToH5 preallocation.
+specs = struct('path', {}, 'size', {}, 'dtype', {}, 'chunk', {});
+add = @(pth, sz, dt, ch) struct('path', pth, 'size', sz, 'dtype', dt, 'chunk', ch);
+specs(end+1) = add('/slap2/varFacDS', [szOut(1), szOut(2), nDSframes], 'single', varFacChunkSize);
+specs(end+1) = add('/meanIM', [numChannels,szOut(1),szOut(2)], 'single', []);
+specs(end+1) = add('/motionDSc', [1,nDSframes], 'double', []);
+specs(end+1) = add('/motionDSr', [1,nDSframes], 'double', []);
+specs(end+1) = add('/recNegErr', [1,nDSframes], 'double', []);
+specs(end+1) = add('/registrationFailed', [1,1], 'int8', []);
+specs(end+1) = add('/motionStd_px', [1,2], 'double', []);
+specs(end+1) = add('/maxMotionStd_px', [1,1], 'double', []);
+specs(end+1) = add('/negativePixelFraction', [1,1], 'double', []);
+specs(end+1) = add('/clipKeepsNaN', [1,1], 'int8', []);
 
 runtimeScalars = { ...
     '/runtime/xcorrInitDispatchCalls', ...
@@ -961,15 +963,15 @@ runtimeScalars = { ...
     '/runtime/wall_s', ...
     '/runtime/registrationBlockFrames'};
 for ix = 1:numel(runtimeScalars)
-    ensureNumericDataset(filename,runtimeScalars{ix},[1,1],'double');
+    specs(end+1) = add(runtimeScalars{ix}, [1,1], 'double', []); %#ok<AGROW>
 end
 
 % getOnlineMotion deliberately returns column vectors for compatibility.
-ensureNumericDataset(filename,'/slap2/onlineMotionXshift',[nDSframes,1],'double');
-ensureNumericDataset(filename,'/slap2/onlineMotionYshift',[nDSframes,1],'double');
-ensureNumericDataset(filename,'/slap2/onlineMotionZshift',[nDSframes,1],'double');
+specs(end+1) = add('/slap2/onlineMotionXshift', [nDSframes,1], 'double', []);
+specs(end+1) = add('/slap2/onlineMotionYshift', [nDSframes,1], 'double', []);
+specs(end+1) = add('/slap2/onlineMotionZshift', [nDSframes,1], 'double', []);
 if hasMotionZ
-    ensureNumericDataset(filename,'/motionDSz',[1,nDSframes],'double');
+    specs(end+1) = add('/motionDSz', [1,nDSframes], 'double', []);
 end
 end
 
