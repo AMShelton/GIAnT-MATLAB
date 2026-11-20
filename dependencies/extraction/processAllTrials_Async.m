@@ -47,10 +47,20 @@ for i = 1:numel(validTrials)
 
     tLoad = tic;
     try
-        CD = loadTrial(dr, fns{nLoad},fls(nLoad),els(nLoad),selPix, ...
+        CD = loadTrialRetryOnLowMemory(dr, fns{nLoad},fls(nLoad),els(nLoad),selPix, ...
             discardFrames{nLoad},alignData{nLoad},meanAligned(:,:,:,nLoad), ...
             motOutput(:,nLoad),roiData,params);
     catch ME
+        if isOutOfMemory(ME)
+            % Out of memory is a property of the machine at that moment, not of
+            % the trial. Recording it as a per-trial exclusion would turn a
+            % resource problem into silently missing data (809047_2025-11-05
+            % DMD1 trials 92-93, 2026-11-20), so after the block-size retries
+            % the run stops here with the trials that remain.
+            fprintf(2,'Trial %d: out of memory while loading even after halving highResBlockFrames; aborting the path. Remaining trials: %s\n', ...
+                nLoad, mat2str(validTrials(i:end)));
+            rethrow(ME);
+        end
         failures(end+1) = struct('trial', nLoad, 'stage', 'load', 'message', ME.message); %#ok<AGROW>
         fprintf(2,'Trial %d: loading/interpolation failed; trial excluded.\n%s\n', nLoad, ...
             getReport(ME,'extended','hyperlinks','off'));
@@ -87,12 +97,56 @@ if ~isempty(failures)
 end
 end
 
+function CD = loadTrialRetryOnLowMemory(dr, fn, startLine, endLine, selPix, discardFrames, alignData, meanIM, motOutput, roiData, params)
+%LOADTRIALRETRYONLOWMEMORY loadTrial, halving highResBlockFrames on out-of-memory.
+% The high-resolution read materialises highResBlockFrames full-raster frames
+% (Y and Fresh) at once; when another job on the machine has taken the RAM
+% that budget assumed, a smaller block usually still fits. Up to three
+% halvings (600 -> 300 -> 150 -> 75 frames), each after releasing the reader
+% cache; any other error, and OOM after the last attempt, propagate.
+if ~isfield(params,'highResBlockFrames') || isempty(params.highResBlockFrames)
+    params.highResBlockFrames = 600;
+end
+for attempt = 1:4
+    try
+        CD = loadTrial(dr, fn, startLine, endLine, selPix, discardFrames, alignData, meanIM, motOutput, roiData, params);
+        return
+    catch ME
+        if ~isOutOfMemory(ME) || attempt == 4
+            rethrow(ME);
+        end
+        params.highResBlockFrames = max(25, floor(params.highResBlockFrames/2));
+        warning('processAllTrials_Async:LowMemoryRetry', ...
+            'Out of memory in getImages (%s); retrying with highResBlockFrames = %d. Check what else is using RAM on this machine.', ...
+            fn, params.highResBlockFrames);
+        if isfield(params,'reuseSlap2Reader') && params.reuseSlap2Reader
+            getCachedSlap2Resources('',true,'clear');
+        end
+        java.lang.System.gc();
+    end
+end
+end
+
+function tf = isOutOfMemory(ME)
+tf = strcmp(ME.identifier,'MATLAB:nomem') || strcmp(ME.identifier,'MATLAB:array:SizeLimitExceeded') || ...
+    contains(ME.message,'Out of memory','IgnoreCase',true);
+if ~tf && ~isempty(ME.cause)
+    for k = 1:numel(ME.cause)
+        if isOutOfMemory(ME.cause{k}), tf = true; return; end
+    end
+end
+end
+
 function [E, failures] = finalizeTrial(resultsFuture, trial, E, failures, params)
 tFetch = tic;
 try
     E{trial} = processResult(resultsFuture, E{trial}, params);
     fprintf('Finalized source extraction for trial %d in %.1f s wait time\n', trial, toc(tFetch));
 catch ME
+    if isOutOfMemory(ME)
+        fprintf(2,'Trial %d: out of memory inside source extraction; aborting the path rather than recording the trial as failed.\n', trial);
+        rethrow(ME);
+    end
     msg = ME.message;
     if ~isempty(ME.cause), msg = [msg ' | ' ME.cause{1}.message]; end
     failures(end+1) = struct('trial', trial, 'stage', 'extract', 'message', msg);
